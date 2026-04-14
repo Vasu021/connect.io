@@ -1,0 +1,36 @@
+{
+  "users": [
+    {
+      "id": "5c56d4dd-42f5-42fc-b4ef-a4d725c095ed",
+      "username": "vasu",
+      "email": "vasu.shekhar.21@gmail.com",
+      "passwordHash": "$2a$10$lxQLr5g4p2cMthETL1X6iORFTj2KZyuj4W0zIF2dnZWBGoINldIFi",
+      "createdAt": "2026-04-12T13:03:09.911Z"
+    },
+    {
+      "id": "d968f86e-4f36-47be-8caf-6477bbdc29da",
+      "username": "cat21",
+      "email": "vasu.shekhar.22@gmail.com",
+      "passwordHash": "$2a$10$9R.tvS5CwSKg2DBTo/kVE.qccwjU3kAQcXPwdArelDlbn146mvEDS",
+      "createdAt": "2026-04-12T13:03:57.219Z"
+    }
+  ],
+  "friendRequests": [
+    {
+      "id": "c852306a-95df-43a1-87ba-8f0613b831c2",
+      "fromUserId": "d968f86e-4f36-47be-8caf-6477bbdc29da",
+      "toUserId": "5c56d4dd-42f5-42fc-b4ef-a4d725c095ed",
+      "status": "ACCEPTED",
+      "createdAt": "2026-04-12T13:04:11.552Z"
+    }
+  ],
+  "friendships": [
+    {
+      "id": "bae90185-954f-4fad-8283-3427fa9ded71",
+      "user1Id": "d968f86e-4f36-47be-8caf-6477bbdc29da",
+      "user2Id": "5c56d4dd-42f5-42fc-b4ef-a4d725c095ed",
+      "createdAt": "2026-04-12T13:04:21.197Z"
+    }
+  ],
+  "games": []
+}
