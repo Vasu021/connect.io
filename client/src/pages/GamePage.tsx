@@ -117,6 +117,21 @@ export default function GamePage({ user }: Props) {
       );
     });
 
+    // FIX #2 + #6 — Opponent disconnect / reconnect / abandon events.
+    socket.on('game:opponent_disconnected', (payload: { username: string; gracePeriodMs: number }) => {
+      const secs = Math.round(payload.gracePeriodMs / 1000);
+      setMessage(`@${payload.username} disconnected. Waiting ${secs}s for them to reconnect…`);
+    });
+
+    socket.on('game:opponent_reconnected', (payload: { username: string }) => {
+      setMessage(`@${payload.username} reconnected. Game continues!`);
+    });
+
+    socket.on('game:abandoned', (payload: { gameId: string; reason: string }) => {
+      setMessage(`Game abandoned — ${payload.reason}`);
+      setGame((prev) => (prev ? { ...prev, status: 'COMPLETED' } : prev));
+    });
+
     return () => {
       socket.disconnect();
     };

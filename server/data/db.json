@@ -13,6 +13,13 @@
       "email": "vasu.shekhar.22@gmail.com",
       "passwordHash": "$2a$10$9R.tvS5CwSKg2DBTo/kVE.qccwjU3kAQcXPwdArelDlbn146mvEDS",
       "createdAt": "2026-04-12T13:03:57.219Z"
+    },
+    {
+      "id": "4299b667-f07c-490c-8a27-8c8d507f0233",
+      "username": "viswas",
+      "email": "viswas@gmail.com",
+      "passwordHash": "$2a$10$0gM0rOcsRp5Wz9jrKXRim.scydnj8ucrcWCfpAJ970u7fOqsXkQCO",
+      "createdAt": "2026-04-18T19:42:22.861Z"
     }
   ],
   "friendRequests": [
@@ -22,6 +29,13 @@
       "toUserId": "5c56d4dd-42f5-42fc-b4ef-a4d725c095ed",
       "status": "ACCEPTED",
       "createdAt": "2026-04-12T13:04:11.552Z"
+    },
+    {
+      "id": "c6e3a82f-3961-451b-ae66-e88a257a5017",
+      "fromUserId": "4299b667-f07c-490c-8a27-8c8d507f0233",
+      "toUserId": "5c56d4dd-42f5-42fc-b4ef-a4d725c095ed",
+      "status": "ACCEPTED",
+      "createdAt": "2026-04-18T19:42:33.138Z"
     }
   ],
   "friendships": [
@@ -30,7 +44,48 @@
       "user1Id": "d968f86e-4f36-47be-8caf-6477bbdc29da",
       "user2Id": "5c56d4dd-42f5-42fc-b4ef-a4d725c095ed",
       "createdAt": "2026-04-12T13:04:21.197Z"
+    },
+    {
+      "id": "b50dbf72-d742-4a69-bf34-9fbaaa5bcbac",
+      "user1Id": "4299b667-f07c-490c-8a27-8c8d507f0233",
+      "user2Id": "5c56d4dd-42f5-42fc-b4ef-a4d725c095ed",
+      "createdAt": "2026-04-18T19:42:38.326Z"
     }
   ],
-  "games": []
+  "games": [
+    {
+      "id": "505f8897-6b98-49eb-b319-00c19289d6d2",
+      "roomCode": "RAEL83",
+      "player1Id": "4299b667-f07c-490c-8a27-8c8d507f0233",
+      "player2Id": "5c56d4dd-42f5-42fc-b4ef-a4d725c095ed",
+      "rounds": [
+        {
+          "roundNumber": 1,
+          "player1Word": null,
+          "player2Word": null,
+          "matched": false,
+          "revealedAt": "2026-04-18T19:44:06.660Z"
+        },
+        {
+          "roundNumber": 2,
+          "player1Word": "abcd",
+          "player2Word": "abc",
+          "matched": false,
+          "revealedAt": "2026-04-18T19:44:18.440Z"
+        },
+        {
+          "roundNumber": 3,
+          "player1Word": "abcde",
+          "player2Word": "abcde",
+          "matched": true,
+          "revealedAt": "2026-04-18T19:44:31.070Z"
+        }
+      ],
+      "finalScore": 3,
+      "status": "COMPLETED",
+      "endedAt": "2026-04-18T19:44:31.071Z",
+      "startedAt": "2026-04-18T19:43:51.647Z"
+    }
+  ],
+  "activeGames": []
 }

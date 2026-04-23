@@ -1,4 +1,5 @@
-const API_BASE = 'http://localhost:4000';
+// FIX #5 — Use env var so the URL works in non-local deployments.
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
 
 export function getToken(): string | null {
   return localStorage.getItem('connect_token');
