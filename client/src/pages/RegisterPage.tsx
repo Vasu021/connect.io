@@ -1,71 +1,102 @@
-import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import AuthCard from '../components/AuthCard';
-import { api } from '../lib/api';
-import { User } from '../types';
+import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
+import { Brand } from '../components/Brand';
+import { ApiError } from '../lib/api';
+import { useAuth } from '../lib/auth';
 
-type Props = {
-  onAuth: (token: string, user: User) => void;
-};
-
-type RegisterResponse = {
-  token: string;
-  user: User;
-};
-
-export default function RegisterPage({ onAuth }: Props) {
-  const navigate = useNavigate();
-  const [form, setForm] = useState({ username: '', email: '', password: '' });
+export default function RegisterPage() {
+  const { register } = useAuth();
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  const passwordShort = password.length > 0 && password.length < 10;
+
+  async function onSubmit(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
+
+    setBusy(true);
     setError('');
-    setLoading(true);
 
     try {
-      const data = await api<RegisterResponse>('/api/auth/register', {
-        method: 'POST',
-        body: JSON.stringify(form),
-      });
-      onAuth(data.token, data.user);
-      navigate('/');
+      await register(username, email, password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      setError(err instanceof ApiError ? err.message : 'Could not create your account');
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
   return (
-    <AuthCard title="Create account" subtitle="Start discovering how you connect.">
-      <form onSubmit={handleSubmit} className="stack">
-        <input
-          placeholder="Username"
-          value={form.username}
-          onChange={(e) => setForm({ ...form, username: e.target.value })}
-        />
-        <input
-          placeholder="Email"
-          type="email"
-          value={form.email}
-          onChange={(e) => setForm({ ...form, email: e.target.value })}
-        />
-        <input
-          type="password"
-          placeholder="Password (min 8 chars)"
-          value={form.password}
-          onChange={(e) => setForm({ ...form, password: e.target.value })}
-        />
-        {error ? <div className="error">{error}</div> : null}
-        <button className="primary-btn" disabled={loading}>
-          {loading ? 'Creating...' : 'Register'}
-        </button>
-      </form>
-      <div className="auth-link">
-        Already have an account? <Link to="/login">Login</Link>
+    <div className="center-screen">
+      <div className="card auth-card">
+        <Brand to="/register" />
+        <h1 style={{ fontSize: 26, marginTop: 18 }}>Create your account</h1>
+        <p className="auth-tagline">
+          Two players, one word each, fifteen seconds. Lower score, closer minds.
+        </p>
+
+        <form className="stack" onSubmit={onSubmit} noValidate>
+          {error ? (
+            <div className="form-error" role="alert">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="field">
+            <label htmlFor="username">Username</label>
+            <input
+              id="username"
+              className="input"
+              autoComplete="username"
+              autoFocus
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="3–20 letters, numbers or _"
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              className="input"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="new-password">Password</label>
+            <input
+              id="new-password"
+              className={`input${passwordShort ? ' input-error' : ''}`}
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="At least 10 characters"
+            />
+            <span className="small faint">
+              {passwordShort ? `${10 - password.length} more characters needed` : 'At least 10 characters'}
+            </span>
+          </div>
+
+          <button className="btn btn-primary btn-block btn-lg" disabled={busy}>
+            {busy ? 'Creating…' : 'Create account'}
+          </button>
+        </form>
+
+        <p className="auth-switch">
+          Already playing? <Link to="/login">Sign in</Link>
+        </p>
       </div>
-    </AuthCard>
+    </div>
   );
 }

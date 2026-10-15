@@ -1,2 +1,17 @@
 node_modules/
-client/.env
+dist/
+build/
+*.tsbuildinfo
+
+# env — never commit real or sample-with-secrets env files
+.env
+.env.*
+!.env.example
+
+# local data
+server/data/db.json
+server/prisma/*.db
+
+# os / editor
+.DS_Store
+*.log

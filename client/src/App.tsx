@@ -1,110 +1,93 @@
-import { ReactNode, useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
-import { api, clearToken, getToken, setToken } from "./lib/api";
-import DashboardPage from "./pages/DashboardPage";
-import GamePage from "./pages/GamePage";
-import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
-import { User } from "./types";
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { useAuth } from './lib/auth';
+import DashboardPage from './pages/DashboardPage';
+import GamePage from './pages/GamePage';
+import HistoryPage from './pages/HistoryPage';
+import LoginPage from './pages/LoginPage';
+import ProfilePage from './pages/ProfilePage';
+import RegisterPage from './pages/RegisterPage';
+import type { ReactElement } from 'react';
 
-type ProtectedRouteProps = {
-  user: User | null;
-  children: ReactNode;
-};
-
-type MeResponse = {
-  user: User;
-};
-
-function ProtectedRoute({ user, children }: ProtectedRouteProps) {
+function Protected({ children }: { children: ReactElement }) {
+  const { user, loading } = useAuth();
+  if (loading) return <Booting />;
   if (!user) return <Navigate to="/login" replace />;
-  return <>{children}</>;
+  return children;
+}
+
+function GuestOnly({ children }: { children: ReactElement }) {
+  const { user, loading } = useAuth();
+  if (loading) return <Booting />;
+  if (user) return <Navigate to="/" replace />;
+  return children;
+}
+
+function Booting() {
+  return (
+    <div className="center-screen">
+      <div className="stack" style={{ alignItems: 'center', gap: 14 }}>
+        <span className="brand-mark" aria-hidden="true">
+          <span />
+          <span />
+        </span>
+        <span className="muted small">Opening connect.io…</span>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [bootLoading, setBootLoading] = useState(true);
-
-  useEffect(() => {
-    async function loadMe() {
-      if (!getToken()) {
-        setUser(null);
-        setBootLoading(false);
-        return;
-      }
-
-      try {
-        const data = await api<MeResponse>("/api/auth/me");
-        setUser(data.user);
-      } catch {
-        clearToken();
-        setUser(null);
-      } finally {
-        setBootLoading(false);
-      }
-    }
-
-    void loadMe();
-  }, []);
-
-  if (bootLoading) {
-    return <div className="center-screen">Loading connect.io...</div>;
-  }
-
   return (
     <Routes>
       <Route
         path="/login"
         element={
-          user ? (
-            <Navigate to="/" replace />
-          ) : (
-            <LoginPage
-              onAuth={(token, nextUser) => {
-                setToken(token);
-                setUser(nextUser);
-              }}
-            />
-          )
+          <GuestOnly>
+            <LoginPage />
+          </GuestOnly>
         }
       />
       <Route
         path="/register"
         element={
-          user ? (
-            <Navigate to="/" replace />
-          ) : (
-            <RegisterPage
-              onAuth={(token, nextUser) => {
-                setToken(token);
-                setUser(nextUser);
-              }}
-            />
-          )
-        }
-      />
-      <Route
-        path="/game/:gameId"
-        element={
-          <ProtectedRoute user={user}>
-            <GamePage user={user as User} />
-          </ProtectedRoute>
+          <GuestOnly>
+            <RegisterPage />
+          </GuestOnly>
         }
       />
       <Route
         path="/"
         element={
-          <ProtectedRoute user={user}>
-            <DashboardPage
-              user={user as User}
-              onLogout={() => {
-                clearToken();
-                setUser(null);
-              }}
-            />
-          </ProtectedRoute>
+          <Protected>
+            <DashboardPage />
+          </Protected>
         }
       />
+      <Route
+        path="/game/:gameId"
+        element={
+          <Protected>
+            <GamePage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/history"
+        element={
+          <Protected>
+            <HistoryPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/player/:userId"
+        element={
+          <Protected>
+            <ProfilePage />
+          </Protected>
+        }
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

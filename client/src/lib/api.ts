@@ -1,36 +1,52 @@
-// FIX #5 — Use env var so the URL works in non-local deployments.
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+/**
+ * In development VITE_API_URL is empty and Vite proxies /api to the server, so
+ * the session cookie stays first-party. Set it only for a split-origin deploy.
+ */
+export const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
-export function getToken(): string | null {
-  return localStorage.getItem('connect_token');
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+  }
 }
 
-export function setToken(token: string): void {
-  localStorage.setItem('connect_token', token);
-}
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  let response: Response;
 
-export function clearToken(): void {
-  localStorage.removeItem('connect_token');
-}
-
-export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers ?? {}),
-    },
-  });
-
-  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-
-  if (!response.ok) {
-    throw new Error(typeof data.message === 'string' ? data.message : 'Request failed');
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method,
+      // The session is an httpOnly cookie, so every call must carry credentials.
+      credentials: 'include',
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(0, 'network', 'Cannot reach the server. Is it running?');
   }
 
-  return data as T;
+  const text = await response.text();
+  const payload = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      typeof payload.error === 'string' ? payload.error : 'error',
+      typeof payload.message === 'string' ? payload.message : 'Something went wrong',
+    );
+  }
+
+  return payload as T;
 }
 
-export { API_BASE };
+export const api = {
+  get: <T>(path: string) => request<T>('GET', path),
+  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  del: <T>(path: string) => request<T>('DELETE', path),
+};

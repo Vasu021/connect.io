@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: connectio-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: connectio
+      POSTGRES_PASSWORD: connectio_dev
+      POSTGRES_DB: connectio
+    ports:
+      - "5433:5432"
+    volumes:
+      - connectio-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U connectio -d connectio"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  connectio-pgdata:

@@ -1,19 +1,25 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
-import './styles.css';
+import { AuthProvider } from './lib/auth';
+import { SocketProvider } from './lib/socket';
+import { ToastProvider } from './lib/toasts';
+import './styles/app.css';
 
-const rootElement = document.getElementById('root');
+const container = document.getElementById('root');
+if (!container) throw new Error('Missing #root element');
 
-if (!rootElement) {
-  throw new Error('Root element not found');
-}
-
-ReactDOM.createRoot(rootElement).render(
-  <React.StrictMode>
+createRoot(container).render(
+  <StrictMode>
     <BrowserRouter>
-      <App />
+      <ToastProvider>
+        <AuthProvider>
+          <SocketProvider>
+            <App />
+          </SocketProvider>
+        </AuthProvider>
+      </ToastProvider>
     </BrowserRouter>
-  </React.StrictMode>,
+  </StrictMode>,
 );

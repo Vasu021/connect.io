@@ -1,65 +1,81 @@
-import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import AuthCard from '../components/AuthCard';
-import { api } from '../lib/api';
-import { User } from '../types';
+import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
+import { Brand } from '../components/Brand';
+import { ApiError } from '../lib/api';
+import { useAuth } from '../lib/auth';
 
-type Props = {
-  onAuth: (token: string, user: User) => void;
-};
-
-type LoginResponse = {
-  token: string;
-  user: User;
-};
-
-export default function LoginPage({ onAuth }: Props) {
-  const navigate = useNavigate();
-  const [form, setForm] = useState({ identifier: '', password: '' });
+export default function LoginPage() {
+  const { login } = useAuth();
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
+
+    setBusy(true);
     setError('');
-    setLoading(true);
 
     try {
-      const data = await api<LoginResponse>('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify(form),
-      });
-      onAuth(data.token, data.user);
-      navigate('/');
+      await login(identifier, password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof ApiError ? err.message : 'Could not sign in');
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
   return (
-    <AuthCard title="Welcome back" subtitle="Log in to keep connecting.">
-      <form onSubmit={handleSubmit} className="stack">
-        <input
-          placeholder="Username or email"
-          value={form.identifier}
-          onChange={(e) => setForm({ ...form, identifier: e.target.value })}
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={form.password}
-          onChange={(e) => setForm({ ...form, password: e.target.value })}
-        />
-        {error ? <div className="error">{error}</div> : null}
-        <button className="primary-btn" disabled={loading}>
-          {loading ? 'Logging in...' : 'Login'}
-        </button>
-      </form>
-      <div className="auth-link">
-        New here? <Link to="/register">Create an account</Link>
+    <div className="center-screen">
+      <div className="card auth-card">
+        <Brand to="/login" />
+        <h1 style={{ fontSize: 26, marginTop: 18 }}>Welcome back</h1>
+        <p className="auth-tagline">Find out how well you and a friend really think alike.</p>
+
+        <form className="stack" onSubmit={onSubmit} noValidate>
+          {error ? (
+            <div className="form-error" role="alert">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="field">
+            <label htmlFor="identifier">Username or email</label>
+            <input
+              id="identifier"
+              className="input"
+              autoComplete="username"
+              autoFocus
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="vasu"
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              className="input"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••••"
+            />
+          </div>
+
+          <button className="btn btn-primary btn-block btn-lg" disabled={busy}>
+            {busy ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+
+        <p className="auth-switch">
+          New here? <Link to="/register">Create an account</Link>
+        </p>
       </div>
-    </AuthCard>
+    </div>
   );
 }
