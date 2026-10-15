@@ -2,77 +2,111 @@
 
 # connect.io
 
-**How closely do you lot actually think alike?**
+### Eight people. One word each. Fifteen seconds.
 
-A real-time word game for 2–8 players that turns a group's shared instinct into a number.
+**How closely do you actually think alike?**
 
 </div>
 
 ---
 
-## The idea
+## One game, start to finish
 
-Everyone sits in a circle. Each round you get **15 seconds to type one word**, submitted blind. Then every word reveals at once.
+Everyone types a single word, blind. Nobody sees anybody else's until the clock runs out — then all of them land at once.
 
-**Say the same word as anyone else and you connect.** You leave the circle together as a numbered Connection — the first group out is **#1**, the next **#2** — and then you watch the rest.
-
-Play until everyone is connected, or one player is left alone.
+**Round 1.** A shot in the dark. Nobody has anything to go on yet.
 
 ```
-Round 3    a · d · e   all say "ocean"     →  Connection #1     5 left
-Round 5    b · c       both say "signal"   →  Connection #2     3 left
-Round 6    f · g       both say "amber"    →  Connection #3     1 left
-
-h is the Wildcard. The circle closed in 6 rounds.
+elephant    mountain    hurricane    butterfly
+telescope   waterfall   lightning    orchestra
 ```
 
-**Lower is better.**
+Nothing matches. But now all eight of you have seen all eight words, and that changes everything about round two.
 
-## The one rule that makes it a game
-
-**A word played once can never be played again — by anyone.**
-
-Without it, round two is just "everyone copies the most popular word from round one" and every game ends immediately. With it, you have to find a *new* middle every round, and the words spiral inward:
+**Round 2.** You can feel the shape of the group now. Three people reach for the same idea at the same time.
 
 ```
-king → messi → fifa
+storm   storm   storm   ocean
+violin  river   compass sonata
 ```
 
-That trail is the interesting part, and connect.io keeps every one of them — on
-screen while you play, not just in the history afterwards. The one thing you
-never see is what anyone wrote **this** round, until it reveals.
+> **Connection #1 — _storm_.** Three players leave the circle together. Five left.
 
-## Two things to be good at
+**Round 3.** Fewer minds to find, and the obvious words are gone.
+
+```
+rain   rain   needle   cello   horizon
+```
+
+> **Connection #2 — _rain_.** Three left.
+
+**Round 4.** Down to the last three. This is the tense bit.
+
+```
+north   north   quiver
+```
+
+> **Connection #3 — _north_.** One player left standing.
+
+The circle closed in **4 rounds**. That's your score, and it belongs to all eight of you.
+
+The player left alone is the **Wildcard** — nobody else was in that head. It's a badge, not a loss.
+
+---
+
+## Where it gets hard
+
+Here's the rule that turns this from a coin flip into a game:
+
+> ### A word played once can never be played again. By anyone. Ever.
+
+Take it away and round two becomes "everybody copies the most popular word from round one", every game ends immediately, and nothing interesting ever happens.
+
+Keep it, and you can't retreat to the obvious. You have to find a **new** middle every single round — and the words spiral inward as the group closes on something none of you could have named at the start:
+
+```
+king  →  messi  →  fifa
+```
+
+That trail is the good bit. connect.io keeps every word on screen while you play, not buried in a log afterwards. The only thing you never see is what someone wrote **this** round, until it reveals.
+
+---
+
+## Two ways to be good at this
 
 |  |  |
 |---|---|
-| **Placement** | Personal. Connect early and you're #1. |
-| **Room score** | Shared. The round the circle finally closed — everyone wants it low. |
+| **Placement** | Yours alone. Get out first and you're **#1**. |
+| **Room score** | Everyone's. The round the circle finally closed. |
 
-A **Perfect Circle** is when nobody is left over. It's possible at any player count, because a Connection can be three or more people. It's the thing to chase.
+They pull against each other, which is the point. You want out early; the group wants the whole thing over fast.
 
-The player left standing alone is the **Wildcard** — a badge, not a failure. Nobody else was in that head.
+And then there's the thing to actually chase: a **Perfect Circle**, where nobody is left over at all. It's possible at any size, because a Connection can be three, four, five people who all happened to think the same thing.
 
-## What you can do
+At two players, by the way, this is the original game untouched: you match, you both connect, and the score is the round you landed on. Everything above is just that game with more minds in the room. Full rules in [`GAME.md`](./GAME.md).
 
-| | |
+---
+
+## What's in it
+
+|  |  |
 |---|---|
-| **Rooms** | Create one, name it, set a password, pick a size from 2 to 8 |
-| **Invite anyone** | From your friends list or by searching every player — **you don't have to be friends to play** |
+| **Rooms** | Name it, password it, size it anywhere from 2 to 8 |
+| **Anyone can play** | Invite from your friends list or search every player — **friendship is not a requirement** |
 | **Join by code** | Six readable characters like `K7MW2P`. Invited players skip the password |
-| **Host controls** | Only the host starts the game, sets the round length (10–60s), and can remove players |
-| **Nothing to memorise** | Every word already said stays on screen while you think — large and legible beside whoever said it, in a highlighted panel under the word box, and in a full round log |
-| **Live circle** | Watch chords snap between players the moment a Connection forms |
-| **Reconnect** | Drop out mid-game and you have 30 seconds to get back |
+| **Host controls** | Only the host starts, sets the round length (10–60s), and can remove players |
+| **Nothing to memorise** | Every word already said stays on screen, big and legible — beside whoever said it, under your word box, and in a full round log |
+| **The live circle** | Chords snap between players the instant a Connection forms |
+| **Reconnect** | Drop out mid-game and you've got 30 seconds to get back before the circle moves on without you |
 | **Leaderboard** | Fastest circles, bucketed by player count, each group listed at its best |
-| **History** | Every finished game with the full round-by-round trail |
+| **History** | Every finished game, word by word |
 | **Profile** | Best circle, average placement, and the people you connect with fastest |
 
-At two players it's the original game, unchanged: you match, you both connect, and the score is the round you landed on.
+---
 
-## Quick start
+## Run it yourself
 
-You need **Node 20+** and **Docker** (for Postgres).
+You'll need **Node 20+** and **Docker** (for Postgres).
 
 ```bash
 git clone <your-fork-url> connect.io
@@ -83,7 +117,7 @@ npm run db:up        # Postgres on port 5433
 npm run db:push      # create the schema
 ```
 
-Create `server/.env` and give it a real secret:
+Give it a real secret:
 
 ```bash
 cp server/.env.example server/.env
@@ -99,30 +133,31 @@ npm run dev
 - App → **http://localhost:5173**
 - API → http://localhost:4000
 
-### Playing locally with yourself
+### Playing eight-up on your own machine
 
-Eight accounts is a lot of sign-up forms, so there's a seeder:
+Eight sign-up forms is nobody's idea of fun, so:
 
 ```bash
 npm run seed:demo --workspace server
 ```
 
-That creates `demo1` … `demo8` (password `connect-io-demo-pass`), all friends with `demo1`. Open them in separate browser profiles or incognito windows, create a room as `demo1`, invite the rest, and start.
+You get `demo1` … `demo8`, password `connect-io-demo-pass`, all friends with `demo1`. Open them in separate browser profiles or incognito windows, make a room as `demo1`, invite the rest, start.
 
-## Built with
+It's more fun with actual other people, but it's a very good way to watch the circle close.
+
+---
+
+## Under the hood
 
 **Frontend** React 19 · TypeScript · Vite · React Router · Socket.IO client
 **Backend** Node · Express 5 · Socket.IO · Prisma · PostgreSQL · Zod
 **Security** httpOnly cookie sessions, bcrypt, Helmet, per-route rate limiting
 
-`npm test` runs 91 server tests covering the round engine, grouping and placement, the no-repeat rule, scoring, abandonment, rooms and authorisation.
+Live game state lives in memory — fifteen-second rounds are a bad fit for polling a database — with Postgres as the durable mirror, so an in-progress game survives a server restart with its timers, its placements and its banned-word list intact.
 
-## Docs
+`npm test` runs **91 server tests**: the round engine, group formation and placement ordering, the no-repeat rule, scoring, abandonment, rooms and authorisation — including one that drives eight clients at once and checks nobody's pending word ever leaks into anybody else's state.
 
-- [`GAME.md`](./GAME.md) — the rules in full
-- [`DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md) — architecture, data model, realtime protocol
-- [`TASKS.md`](./TASKS.md) — what's done and what's next
-- [`CLAUDE.md`](./CLAUDE.md) — conventions and invariants for AI assistants
+---
 
 ## License
 
