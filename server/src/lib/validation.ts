@@ -39,14 +39,49 @@ export const uuidSchema = z.uuid('Invalid id');
 
 export const idParamSchema = z.object({ id: uuidSchema });
 
-export const createGameSchema = z.object({ friendId: uuidSchema });
+export const roomCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z0-9]{6}$/, 'Room codes are 6 letters or digits');
 
-export const joinByCodeSchema = z.object({
-  roomCode: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(/^[A-Z0-9]{6}$/, 'Room codes are 6 letters or digits'),
+/** Milliseconds per round, as the host sets it in the lobby. */
+export const roundDurationSchema = z.coerce
+  .number()
+  .int()
+  .min(5_000, 'Rounds must be at least 5 seconds')
+  .max(120_000, 'Rounds must be at most 2 minutes');
+
+export const roomSettingsSchema = z
+  .object({
+    roundDurationMs: roundDurationSchema.optional(),
+    maxPlayers: z.coerce.number().int().min(2).max(8).optional(),
+  })
+  .refine(
+    (value) => value.roundDurationMs !== undefined || value.maxPlayers !== undefined,
+    'Nothing to change',
+  );
+
+export const createRoomSchema = z.object({
+  name: z.string().trim().max(40, 'Keep the room name under 40 characters').optional(),
+  // Short by design: this is a "keep randoms out" code shared in chat, not a
+  // credential. It is still bcrypt-hashed at rest.
+  password: z.string().min(4, 'Use at least 4 characters').max(72).optional(),
+  maxPlayers: z.coerce.number().int().min(2).max(8).default(8),
+  roundDurationMs: roundDurationSchema.optional(),
+});
+
+export const joinRoomSchema = z.object({
+  code: roomCodeSchema,
+  password: z.string().max(72).optional(),
+});
+
+export const inviteSchema = z.object({ userId: uuidSchema });
+
+export const quickPlaySchema = z.object({ friendId: uuidSchema });
+
+export const leaderboardQuerySchema = z.object({
+  size: z.coerce.number().int().min(2).max(8).optional(),
 });
 
 export const submitWordSchema = z.object({

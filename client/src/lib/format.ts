@@ -1,13 +1,22 @@
 /**
- * Two letters that actually distinguish people: "demo_a" and "demo_b" must not
- * both render as "DE", so separated names take one letter from each part.
+ * Two letters that actually distinguish people. With eight avatars on screen
+ * at once this matters: "demo1".."demo8" must not all render as "DE", and
+ * neither must "demo_a" and "demo_b".
  */
 export function initials(name: string): string {
   const parts = name.split(/[._\-\s]+/).filter(Boolean);
+
+  // Separated names take one letter from each part: demo_a -> DA.
   if (parts.length >= 2) {
-    return `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`;
+    return `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`.toUpperCase();
   }
-  return name.slice(0, 2);
+
+  const plain = parts[0] ?? name;
+  if (plain.length < 2) return plain.toUpperCase();
+
+  // Otherwise first and last character, which keeps trailing digits and so
+  // separates demo1 from demo8.
+  return `${plain[0]}${plain[plain.length - 1]}`.toUpperCase();
 }
 
 /** "just now", "4m ago", "3d ago" — enough precision for a game log. */

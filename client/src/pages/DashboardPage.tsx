@@ -5,15 +5,18 @@ import { Brand } from '../components/Brand';
 import { ApiError, api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { timeAgo } from '../lib/format';
+import { ordinal, placementColor } from '../lib/placement';
 import { useSocket, useSocketEvent } from '../lib/socket';
 import { useToast } from '../lib/toasts';
 import type {
   Friend,
   FriendRequestView,
   GameSummary,
-  InvitePayload,
-  LeaderboardEntry,
+  LeaderboardResponse,
   PlayerStats,
+  RoomInvitedPayload,
+  RoomInviteView,
+  RoomView,
   SearchResult,
 } from '../lib/types';
 
@@ -26,8 +29,11 @@ export default function DashboardPage() {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [incoming, setIncoming] = useState<FriendRequestView[]>([]);
   const [outgoing, setOutgoing] = useState<FriendRequestView[]>([]);
+  const [rooms, setRooms] = useState<RoomView[]>([]);
+  const [invites, setInvites] = useState<RoomInviteView[]>([]);
   const [games, setGames] = useState<GameSummary[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [board, setBoard] = useState<LeaderboardResponse | null>(null);
+  const [boardSize, setBoardSize] = useState<number | null>(null);
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -35,31 +41,38 @@ export default function DashboardPage() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
 
-  const [roomCode, setRoomCode] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [joinPassword, setJoinPassword] = useState('');
   const [joining, setJoining] = useState(false);
-  const [freshInvites, setFreshInvites] = useState<Set<string>>(new Set());
+
+  const [newRoomName, setNewRoomName] = useState('');
+  const [newRoomPassword, setNewRoomPassword] = useState('');
+  const [newRoomSize, setNewRoomSize] = useState(8);
+  const [creating, setCreating] = useState(false);
 
   const userId = user?.id;
 
   const refresh = useCallback(async () => {
     if (!userId) return;
-
     try {
-      const [friendsData, requestsData, gamesData, boardData, statsData] = await Promise.all([
-        api.get<{ friends: Friend[] }>('/api/friends'),
-        api.get<{ incoming: FriendRequestView[]; outgoing: FriendRequestView[] }>(
-          '/api/friends/requests',
-        ),
-        api.get<{ games: GameSummary[] }>('/api/games/active'),
-        api.get<{ leaderboard: LeaderboardEntry[] }>('/api/games/leaderboard'),
-        api.get<{ stats: PlayerStats }>(`/api/users/${userId}/stats`),
-      ]);
+      const [friendsData, requestsData, roomsData, invitesData, gamesData, statsData] =
+        await Promise.all([
+          api.get<{ friends: Friend[] }>('/api/friends'),
+          api.get<{ incoming: FriendRequestView[]; outgoing: FriendRequestView[] }>(
+            '/api/friends/requests',
+          ),
+          api.get<{ rooms: RoomView[] }>('/api/rooms/mine'),
+          api.get<{ invites: RoomInviteView[] }>('/api/rooms/invites'),
+          api.get<{ games: GameSummary[] }>('/api/games/active'),
+          api.get<{ stats: PlayerStats }>(`/api/users/${userId}/stats`),
+        ]);
 
       setFriends(friendsData.friends);
       setIncoming(requestsData.incoming);
       setOutgoing(requestsData.outgoing);
+      setRooms(roomsData.rooms);
+      setInvites(invitesData.invites);
       setGames(gamesData.games);
-      setLeaderboard(boardData.leaderboard);
       setStats(statsData.stats);
     } catch (err) {
       toast.show(err instanceof ApiError ? err.message : 'Could not load your dashboard', 'bad');
@@ -72,7 +85,37 @@ export default function DashboardPage() {
     void refresh();
   }, [refresh]);
 
-  // Debounced search so typing does not hammer the endpoint.
+  /**
+   * Socket events arrive in bursts — a connection forming fans out to everyone
+   * in the room at once. Refetching six endpoints per event meant eight players
+   * on one network could generate hundreds of requests in seconds, so changes
+   * are coalesced into a single refetch.
+   */
+  const refreshTimer = useRef<number | null>(null);
+
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+    refreshTimer.current = window.setTimeout(() => {
+      refreshTimer.current = null;
+      void refresh();
+    }, 350);
+  }, [refresh]);
+
+  useEffect(
+    () => () => {
+      if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const path = boardSize ? `/api/games/leaderboard?size=${boardSize}` : '/api/games/leaderboard';
+    api
+      .get<LeaderboardResponse>(path)
+      .then(setBoard)
+      .catch(() => undefined);
+  }, [boardSize]);
+
   useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed) {
@@ -95,17 +138,14 @@ export default function DashboardPage() {
 
   /* ── Live updates ─────────────────────────────────────────────────────── */
 
-  const searchRef = useRef(query);
-  searchRef.current = query;
-
-  useSocketEvent<InvitePayload>('game:invited', (payload) => {
-    toast.show(`@${payload.from.username} wants to play`, 'good');
-    setFreshInvites((current) => new Set(current).add(payload.gameId));
-    void refresh();
+  useSocketEvent<RoomInvitedPayload>('room:invited', (payload) => {
+    toast.show(`@${payload.from.username} invited you to a room`, 'good');
+    scheduleRefresh();
   });
 
-  useSocketEvent('games:changed', () => void refresh());
-  useSocketEvent('friend:changed', () => void refresh());
+  useSocketEvent('rooms:changed', scheduleRefresh);
+  useSocketEvent('games:changed', scheduleRefresh);
+  useSocketEvent('friend:changed', scheduleRefresh);
 
   useSocketEvent<{ from: { username: string } }>('friend:request_received', (payload) => {
     toast.show(`@${payload.from.username} sent you a friend request`, 'info');
@@ -115,18 +155,10 @@ export default function DashboardPage() {
     toast.show(`@${payload.by.username} accepted your request`, 'good');
   });
 
-  // Presence is high-frequency, so patch it in place instead of refetching.
   useSocketEvent<{ userId: string; online: boolean }>('presence:friend', (payload) => {
     setFriends((current) =>
       current.map((friend) =>
         friend.id === payload.userId ? { ...friend, online: payload.online } : friend,
-      ),
-    );
-    setGames((current) =>
-      current.map((game) =>
-        game.opponent.id === payload.userId
-          ? { ...game, opponent: { ...game.opponent, online: payload.online } }
-          : game,
       ),
     );
   });
@@ -143,27 +175,36 @@ export default function DashboardPage() {
     }
   }
 
-  async function startGame(friendId: string, username: string) {
+  async function createRoom(event: FormEvent) {
+    event.preventDefault();
+    if (creating) return;
+    setCreating(true);
+
     try {
-      const data = await api.post<{ game: { id: string }; reused: boolean }>('/api/games', {
-        friendId,
+      const data = await api.post<{ room: RoomView }>('/api/rooms', {
+        maxPlayers: newRoomSize,
+        ...(newRoomName.trim() ? { name: newRoomName.trim() } : {}),
+        ...(newRoomPassword.trim() ? { password: newRoomPassword.trim() } : {}),
       });
-      if (data.reused) toast.show(`Re-opening your room with @${username}`, 'info');
-      navigate(`/game/${data.game.id}`);
+      navigate(`/room/${data.room.id}`);
     } catch (err) {
-      toast.show(err instanceof ApiError ? err.message : 'Could not start that game', 'bad');
+      toast.show(err instanceof ApiError ? err.message : 'Could not create the room', 'bad');
+      setCreating(false);
     }
   }
 
   async function joinByCode(event: FormEvent) {
     event.preventDefault();
-    const code = roomCode.trim().toUpperCase();
+    const code = joinCode.trim().toUpperCase();
     if (code.length !== 6 || joining) return;
 
     setJoining(true);
     try {
-      const data = await api.post<{ gameId: string }>('/api/games/join', { roomCode: code });
-      navigate(`/game/${data.gameId}`);
+      const data = await api.post<{ room: RoomView }>('/api/rooms/join', {
+        code,
+        ...(joinPassword.trim() ? { password: joinPassword.trim() } : {}),
+      });
+      navigate(`/room/${data.room.id}`);
     } catch (err) {
       toast.show(err instanceof ApiError ? err.message : 'Could not find that room', 'bad');
     } finally {
@@ -171,10 +212,29 @@ export default function DashboardPage() {
     }
   }
 
-  const pendingInvites = useMemo(
-    () => games.filter((game) => game.status === 'WAITING' && !game.youInvited),
-    [games],
-  );
+  async function acceptInvite(invite: RoomInviteView) {
+    try {
+      // An invite is the authorisation: no password needed.
+      const data = await api.post<{ room: RoomView }>('/api/rooms/join', {
+        code: invite.room.code,
+      });
+      navigate(`/room/${data.room.id}`);
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : 'Could not join that room', 'bad');
+    }
+  }
+
+  async function quickPlay(friendId: string, username: string) {
+    try {
+      const data = await api.post<{ room: RoomView }>('/api/rooms/quick', { friendId });
+      toast.show(`Invited @${username}`, 'good');
+      navigate(`/room/${data.room.id}`);
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : 'Could not start that game', 'bad');
+    }
+  }
+
+  const sizes = useMemo(() => board?.availableSizes ?? [], [board]);
 
   if (!user) return null;
 
@@ -199,119 +259,189 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {pendingInvites.length > 0 ? (
+      {invites.length > 0 ? (
         <div className="stack" style={{ marginBottom: 16 }}>
-          {pendingInvites.map((game) => (
-            <div
-              key={game.id}
-              className={`invite${freshInvites.has(game.id) ? ' invite-pulse' : ''}`}
-            >
+          {invites.map((invite) => (
+            <div className="invite invite-pulse" key={invite.id}>
               <div className="row">
-                <Avatar username={game.opponent.username} side="them" />
+                <Avatar username={invite.from.username} side="them" />
                 <div>
-                  <strong>@{game.opponent.username}</strong> invited you to connect
+                  <strong>@{invite.from.username}</strong> invited you to{' '}
+                  {invite.room.name ?? 'a circle'}
                   <div className="small muted">
-                    Room <span className="mono-code">{game.roomCode}</span> ·{' '}
-                    {timeAgo(game.createdAt)}
+                    {invite.room.memberCount} / {invite.room.maxPlayers} seats · room{' '}
+                    <span className="mono-code">{invite.room.code}</span> ·{' '}
+                    {timeAgo(invite.createdAt)}
                   </div>
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={() => navigate(`/game/${game.id}`)}>
-                Join game
-              </button>
+              <div className="row">
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => void act(() => api.post(`/api/rooms/${invite.room.id}/decline`))}
+                >
+                  Decline
+                </button>
+                <button className="btn btn-primary" onClick={() => void acceptInvite(invite)}>
+                  Join room
+                </button>
+              </div>
             </div>
           ))}
         </div>
       ) : null}
 
       <div className="dashboard-grid">
-        {/* ── Your games ───────────────────────────────────────────────── */}
+        {/* ── Play ─────────────────────────────────────────────────────── */}
         <section className="card card-accent-you">
           <div className="card-head">
-            <h2>Your games</h2>
-            <span className="small faint">{games.length} open</span>
+            <h2>New circle</h2>
+            <span className="small faint">2–8 players</span>
+          </div>
+
+          <form className="stack" onSubmit={createRoom}>
+            <input
+              className="input"
+              value={newRoomName}
+              maxLength={40}
+              onChange={(e) => setNewRoomName(e.target.value)}
+              placeholder="Room name (optional)"
+              aria-label="Room name"
+            />
+            <input
+              className="input"
+              type="password"
+              value={newRoomPassword}
+              maxLength={72}
+              onChange={(e) => setNewRoomPassword(e.target.value)}
+              placeholder="Password (optional)"
+              aria-label="Room password"
+            />
+            <div className="row spread row-wrap">
+              <span className="tiny">Max players</span>
+              <div className="segmented">
+                {[2, 3, 4, 5, 6, 7, 8].map((size) => (
+                  <button
+                    type="button"
+                    key={size}
+                    aria-pressed={newRoomSize === size}
+                    onClick={() => setNewRoomSize(size)}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button className="btn btn-primary btn-block" disabled={creating}>
+              {creating ? 'Creating…' : 'Create room'}
+            </button>
+          </form>
+
+          <form className="row" onSubmit={joinByCode} style={{ marginTop: 14 }}>
+            <input
+              className="input mono-code"
+              value={joinCode}
+              maxLength={6}
+              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+              placeholder="CODE"
+              aria-label="Join a room by code"
+              style={{ flex: 1 }}
+            />
+            <input
+              className="input"
+              type="password"
+              value={joinPassword}
+              onChange={(e) => setJoinPassword(e.target.value)}
+              placeholder="Password"
+              aria-label="Room password"
+              style={{ flex: 1 }}
+            />
+            <button className="btn btn-sm" disabled={joinCode.trim().length !== 6 || joining}>
+              Join
+            </button>
+          </form>
+        </section>
+
+        {/* ── In progress ──────────────────────────────────────────────── */}
+        <section className="card">
+          <div className="card-head">
+            <h2>In progress</h2>
+            <span className="small faint">{rooms.length + games.length} open</span>
           </div>
 
           {loading ? (
             <div className="stack">
               <div className="skeleton" />
-              <div className="skeleton" />
             </div>
-          ) : games.length === 0 ? (
-            <div className="empty">
-              No games open. Pick a friend below and start one.
-            </div>
+          ) : rooms.length === 0 && games.length === 0 ? (
+            <div className="empty">Nothing running. Create a circle or join one.</div>
           ) : (
             <div className="rows">
-              {games.map((game) => (
-                <div className="list-row" key={game.id}>
+              {rooms.map((room) => (
+                <div className="list-row" key={room.id}>
                   <div className="row-main">
-                    <Avatar username={game.opponent.username} side="them" />
+                    <span className="rank">{room.members.length}</span>
                     <div className="row-label">
-                      <div className="row-name">@{game.opponent.username}</div>
+                      <div className="row-name">{room.name ?? 'Circle'}</div>
                       <div className="small muted">
-                        {game.status === 'ACTIVE'
-                          ? `Round ${game.currentRound} in progress`
-                          : game.youInvited
-                            ? 'Waiting for them to join'
-                            : 'Waiting for you'}
+                        {room.status === 'IN_GAME' ? 'Game running' : 'Waiting in the lobby'} ·{' '}
+                        <span className="mono-code">{room.code}</span>
                       </div>
                     </div>
                   </div>
-                  <div className="list-row-actions">
-                    {game.status === 'ACTIVE' ? (
-                      <span className="pill pill-live">
-                        <OnlineDot online />
-                        live
-                      </span>
-                    ) : null}
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() =>
+                      navigate(
+                        room.activeGameId ? `/game/${room.activeGameId}` : `/room/${room.id}`,
+                      )
+                    }
+                  >
+                    {room.activeGameId ? 'Rejoin' : 'Open'}
+                  </button>
+                </div>
+              ))}
+
+              {games
+                .filter((game) => !rooms.some((room) => room.activeGameId === game.id))
+                .map((game) => (
+                  <div className="list-row" key={game.id}>
+                    <div className="row-main">
+                      <span className="rank">{game.playerCount}</span>
+                      <div className="row-label">
+                        <div className="row-name">Round {game.currentRound}</div>
+                        <div className="small muted">
+                          <span className="mono-code">{game.roomCode}</span>
+                        </div>
+                      </div>
+                    </div>
                     <button
                       className="btn btn-primary btn-sm"
                       onClick={() => navigate(`/game/${game.id}`)}
                     >
-                      {game.status === 'ACTIVE' ? 'Resume' : 'Open'}
+                      Rejoin
                     </button>
                   </div>
-                </div>
-              ))}
+                ))}
             </div>
           )}
-
-          <form className="row" onSubmit={joinByCode} style={{ marginTop: 14 }}>
-            <input
-              className="input mono-code"
-              value={roomCode}
-              maxLength={6}
-              onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-              placeholder="ROOM CODE"
-              aria-label="Join a room by code"
-            />
-            <button className="btn btn-sm" disabled={roomCode.trim().length !== 6 || joining}>
-              Join
-            </button>
-          </form>
         </section>
 
         {/* ── Friends ──────────────────────────────────────────────────── */}
         <section className="card">
           <div className="card-head">
             <h2>Friends</h2>
-            <span className="small faint">
-              {friends.filter((f) => f.online).length} online
-            </span>
+            <span className="small faint">{friends.filter((f) => f.online).length} online</span>
           </div>
 
           {loading ? (
-            <div className="stack">
-              <div className="skeleton" />
-              <div className="skeleton" />
-            </div>
+            <div className="skeleton" />
           ) : friends.length === 0 ? (
             <div className="empty">
-              No friends yet. Search for someone and send a request.
+              No friends yet — but you do not need any. Anyone can join your room.
             </div>
           ) : (
-            <div className="rows">
+            <div className="rows rows-scroll">
               {friends.map((friend) => (
                 <div className="list-row" key={friend.id}>
                   <div className="row-main">
@@ -322,7 +452,7 @@ export default function DashboardPage() {
                         <Link to={`/player/${friend.id}`}>@{friend.username}</Link>
                       </div>
                       <div className="small faint">
-                        {friend.online ? 'Online now' : `Friends since ${timeAgo(friend.friendsSince)}`}
+                        {friend.online ? 'Online now' : `Friends ${timeAgo(friend.friendsSince)}`}
                       </div>
                     </div>
                   </div>
@@ -335,13 +465,12 @@ export default function DashboardPage() {
                           `Removed @${friend.username}`,
                         )
                       }
-                      title={`Remove @${friend.username}`}
                     >
                       Remove
                     </button>
                     <button
                       className="btn btn-primary btn-sm"
-                      onClick={() => void startGame(friend.id, friend.username)}
+                      onClick={() => void quickPlay(friend.id, friend.username)}
                     >
                       Play
                     </button>
@@ -366,7 +495,7 @@ export default function DashboardPage() {
             aria-label="Search for players"
           />
 
-          <div className="rows" style={{ marginTop: 8 }}>
+          <div className="rows rows-scroll" style={{ marginTop: 8 }}>
             {searching ? <div className="empty">Searching…</div> : null}
             {!searching && query.trim() && results.length === 0 ? (
               <div className="empty">Nobody matches “{query.trim()}”.</div>
@@ -450,9 +579,7 @@ export default function DashboardPage() {
                       <button
                         className="btn btn-ghost btn-sm btn-danger"
                         onClick={() =>
-                          void act(() =>
-                            api.post(`/api/friends/requests/${request.id}/reject`),
-                          )
+                          void act(() => api.post(`/api/friends/requests/${request.id}/reject`))
                         }
                       >
                         Ignore
@@ -487,7 +614,6 @@ export default function DashboardPage() {
                       <Avatar username={request.user.username} />
                       <div className="row-label">
                         <div className="row-name">@{request.user.username}</div>
-                        <div className="small faint">{timeAgo(request.createdAt)}</div>
                       </div>
                     </div>
                     <button
@@ -506,36 +632,51 @@ export default function DashboardPage() {
         {/* ── Leaderboard ──────────────────────────────────────────────── */}
         <section className="card span-2">
           <div className="card-head">
-            <h2>Closest pairs</h2>
-            <span className="small faint">Lower is better</span>
+            <h2>Fastest circles</h2>
+            <div className="segmented">
+              <button aria-pressed={boardSize === null} onClick={() => setBoardSize(null)}>
+                All
+              </button>
+              {sizes.map((size) => (
+                <button
+                  key={size.playerCount}
+                  aria-pressed={boardSize === size.playerCount}
+                  onClick={() => setBoardSize(size.playerCount)}
+                >
+                  {size.playerCount}p
+                </button>
+              ))}
+            </div>
           </div>
 
-          {leaderboard.length === 0 ? (
+          {!board || board.leaderboard.length === 0 ? (
             <div className="empty">
-              No pair has connected yet. Be the first — a score of 1 is the brag.
+              No circle has closed yet. A score of 1 is the brag.
             </div>
           ) : (
             <div className="rows">
-              {leaderboard.map((entry) => (
-                <div className="list-row" key={entry.pairKey}>
+              {board.leaderboard.map((entry) => (
+                <div className="list-row" key={entry.groupKey}>
                   <div className="row-main">
                     <span className={`rank rank-${entry.rank}`}>{entry.rank}</span>
                     <div className="row-label">
                       <div className="row-name">
                         {entry.players.map((player, index) => (
                           <span key={player.id}>
-                            {index > 0 ? <span className="faint"> + </span> : null}
+                            {index > 0 ? <span className="faint"> · </span> : null}
                             <Link to={`/player/${player.id}`}>@{player.username}</Link>
                           </span>
                         ))}
                       </div>
                       <div className="small faint">
-                        {entry.games} {entry.games === 1 ? 'game' : 'games'}
-                        {entry.lastPlayed ? ` · ${timeAgo(entry.lastPlayed)}` : ''}
+                        {entry.playerCount} players
+                        {entry.games > 1 ? ` · best of ${entry.games}` : ''}
+                        {entry.perfectCircle ? ' · perfect circle' : ''}
+                        {entry.endedAt ? ` · ${timeAgo(entry.endedAt)}` : ''}
                       </div>
                     </div>
                   </div>
-                  <span className="score-chip">{entry.bestScore}</span>
+                  <span className="score-chip">{entry.finalScore}</span>
                 </div>
               ))}
             </div>
@@ -555,11 +696,16 @@ export default function DashboardPage() {
             <div className="stat-grid">
               <div className="stat">
                 <div className="stat-value is-best">{stats.bestScore ?? '—'}</div>
-                <div className="tiny">Best score</div>
+                <div className="tiny">Best circle</div>
               </div>
               <div className="stat">
-                <div className="stat-value">{stats.gamesMatched}</div>
-                <div className="tiny">Connected</div>
+                <div
+                  className="stat-value"
+                  style={{ color: stats.firstPlaceFinishes ? placementColor(1) : undefined }}
+                >
+                  {stats.firstPlaceFinishes}
+                </div>
+                <div className="tiny">1st connections</div>
               </div>
               <div className="stat">
                 <div className="stat-value">{stats.gamesPlayed}</div>
@@ -569,6 +715,12 @@ export default function DashboardPage() {
           ) : (
             <div className="skeleton" />
           )}
+
+          {stats && stats.averagePlacement !== null ? (
+            <p className="small faint" style={{ marginTop: 10, marginBottom: 0 }}>
+              You usually connect {ordinal(Math.round(stats.averagePlacement))}.
+            </p>
+          ) : null}
         </section>
 
         {/* ── How it works ─────────────────────────────────────────────── */}
@@ -578,18 +730,27 @@ export default function DashboardPage() {
           </div>
           <div className="how">
             <div className="how-step">
-              <span>Both of you get 15 seconds to type one word — submitted blind.</span>
-            </div>
-            <div className="how-step">
-              <span>The words reveal at the same time. Same word? The game ends.</span>
-            </div>
-            <div className="how-step">
               <span>
-                Your score is the round you landed on. <strong>Lower is better.</strong>
+                2–8 players. Everyone types one word in 15 seconds, blind. All words reveal at once.
               </span>
             </div>
             <div className="how-step">
-              <span>There is no winner between you — you are both playing against the gap.</span>
+              <span>
+                Say the same word as anyone else and you <strong>connect</strong> — you leave the
+                circle together as Connection #1, then #2, and so on.
+              </span>
+            </div>
+            <div className="how-step">
+              <span>
+                A word played once can never be played again, so you have to find a new middle
+                every round.
+              </span>
+            </div>
+            <div className="how-step">
+              <span>
+                Play until everyone is connected or one player is left alone.{' '}
+                <strong>Fewer rounds is better</strong> — and nobody left over is a perfect circle.
+              </span>
             </div>
           </div>
         </section>

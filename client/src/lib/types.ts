@@ -1,5 +1,7 @@
 export type GameStatus = 'WAITING' | 'ACTIVE' | 'COMPLETED';
 export type GameOutcome = 'MATCHED' | 'UNMATCHED' | 'ABANDONED' | 'FORFEITED';
+export type PlayerStatus = 'ACTIVE' | 'CONNECTED' | 'LEFT';
+export type RoomStatus = 'LOBBY' | 'IN_GAME' | 'CLOSED';
 
 export type User = {
   id: string;
@@ -31,12 +33,66 @@ export type FriendRequestView = {
   user: { id: string; username: string; online: boolean };
 };
 
+/* ─── Rooms ───────────────────────────────────────────────────────────────── */
+
+export type RoomMemberView = {
+  id: string;
+  username: string;
+  online: boolean;
+  isHost: boolean;
+  isYou: boolean;
+};
+
+export type RoomView = {
+  id: string;
+  code: string;
+  name: string | null;
+  hasPassword: boolean;
+  maxPlayers: number;
+  /** Milliseconds per round, as the host has it set. */
+  roundDurationMs: number;
+  status: RoomStatus;
+  hostId: string;
+  youAreHost: boolean;
+  members: RoomMemberView[];
+  activeGameId: string | null;
+  createdAt: string;
+};
+
+export type RoomInviteView = {
+  id: string;
+  createdAt: string;
+  from: { id: string; username: string };
+  room: {
+    id: string;
+    code: string;
+    name: string | null;
+    maxPlayers: number;
+    hasPassword: boolean;
+    memberCount: number;
+  };
+};
+
+/* ─── Game ────────────────────────────────────────────────────────────────── */
+
+export type ConnectionView = {
+  placement: number;
+  word: string;
+  roundNumber: number;
+  memberIds: string[];
+};
+
+export type SubmissionView = {
+  userId: string;
+  word: string;
+  matched: boolean;
+};
+
 export type RoundView = {
   roundNumber: number;
-  player1Word: string | null;
-  player2Word: string | null;
-  matched: boolean;
   revealedAt: string;
+  submissions: SubmissionView[];
+  formed: ConnectionView[];
 };
 
 export type PlayerView = {
@@ -44,27 +100,35 @@ export type PlayerView = {
   username: string;
   online: boolean;
   isYou: boolean;
+  status: PlayerStatus;
+  placement: number | null;
+  connectedAtRound: number | null;
+  hasSubmitted: boolean;
+  seat: number;
 };
 
 export type GameStateView = {
   id: string;
+  roomId: string;
   roomCode: string;
   status: GameStatus;
   outcome: GameOutcome | null;
   finalScore: number | null;
+  perfectCircle: boolean;
   currentRound: number;
   maxRounds: number;
   roundDurationMs: number;
   roundDeadline: number | null;
   players: PlayerView[];
   youId: string;
-  opponentId: string;
+  youStatus: PlayerStatus;
   youSubmitted: boolean;
   youWord: string | null;
-  opponentSubmitted: boolean;
-  opponentOnline: boolean;
-  bothPresent: boolean;
+  activeCount: number;
+  connections: ConnectionView[];
   rounds: RoundView[];
+  playedWords: string[];
+  wildcardId: string | null;
 };
 
 export type GameSummary = {
@@ -73,35 +137,51 @@ export type GameSummary = {
   status: GameStatus;
   outcome: GameOutcome | null;
   finalScore: number | null;
+  playerCount: number;
+  perfectCircle: boolean;
   currentRound: number;
   createdAt: string;
   endedAt: string | null;
-  opponent: { id: string; username: string; online: boolean };
-  youInvited: boolean;
+  players: { id: string; username: string }[];
+  yourPlacement: number | null;
 };
 
 export type HistoryGame = GameSummary & {
-  players: { id: string; username: string }[];
+  connections: ConnectionView[];
   rounds: RoundView[];
 };
 
 export type LeaderboardEntry = {
   rank: number;
-  pairKey: string;
-  players: { id: string; username: string }[];
-  bestScore: number;
+  /** Identifies the set of players, so a group appears once at its best. */
+  groupKey: string;
   games: number;
-  lastPlayed: string | null;
+  gameId: string;
+  roomCode: string;
+  finalScore: number;
+  playerCount: number;
+  perfectCircle: boolean;
+  endedAt: string | null;
+  players: { id: string; username: string; placement: number | null }[];
+};
+
+export type LeaderboardResponse = {
+  availableSizes: { playerCount: number; games: number }[];
+  leaderboard: LeaderboardEntry[];
 };
 
 export type PlayerStats = {
   gamesPlayed: number;
-  gamesMatched: number;
+  gamesConnected: number;
   bestScore: number | null;
   averageScore: number | null;
-  unmatched: number;
-  abandoned: number;
-  topPartners: { id: string; username: string; games: number; best: number | null }[];
+  firstPlaceFinishes: number;
+  averagePlacement: number | null;
+  fastestConnection: number | null;
+  perfectCircles: number;
+  wildcards: number;
+  unfinished: number;
+  topPartners: { id: string; username: string; times: number; fastest: number | null }[];
 };
 
 /* ─── Socket payloads ─────────────────────────────────────────────────────── */
@@ -111,22 +191,45 @@ export type RoundStartedPayload = {
   roundNumber: number;
   deadlineAt: number;
   durationMs: number;
+  activeCount: number;
 };
 
 export type RoundRevealedPayload = {
   gameId: string;
   round: RoundView;
-  rounds: RoundView[];
+  playedWords: string[];
+  remaining: number;
   isFinal: boolean;
+};
+
+export type ConnectionFormedPayload = {
+  gameId: string;
+  connection: ConnectionView;
 };
 
 export type GameEndedPayload = {
   gameId: string;
   outcome: GameOutcome;
   finalScore: number | null;
-  rounds: RoundView[];
+  perfectCircle: boolean;
+  connections: ConnectionView[];
+  wildcardId: string | null;
   reason: string | null;
-  players: { id: string; username: string }[];
+  players: {
+    id: string;
+    username: string;
+    status: PlayerStatus;
+    placement: number | null;
+    connectedAtRound: number | null;
+  }[];
+};
+
+export type PlayerLeftPayload = {
+  gameId: string;
+  userId: string;
+  username: string;
+  remaining: number;
+  reason?: string;
 };
 
 export type PresencePayload = {
@@ -135,12 +238,18 @@ export type PresencePayload = {
   username: string;
   online: boolean;
   graceMs?: number;
-  /** True only when the partner was actually told — brief blips are silent. */
   announced?: boolean;
 };
 
-export type InvitePayload = {
-  gameId: string;
-  roomCode: string;
+export type RoomInvitedPayload = {
+  roomId: string;
+  code: string;
+  name: string | null;
+  hasPassword: boolean;
   from: { id: string; username: string };
+};
+
+export type RoomGameStartedPayload = {
+  roomId: string;
+  gameId: string;
 };

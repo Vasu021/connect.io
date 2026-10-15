@@ -2,7 +2,7 @@ import type { Server, Socket } from 'socket.io';
 import { env } from '../env.js';
 import { AUTH_COOKIE, type SessionUser, parseCookieHeader, verifySession } from '../lib/auth.js';
 import { friendIdsOf } from '../lib/friends.js';
-import { gameIdSchema, submitWordSchema } from '../lib/validation.js';
+import { gameIdSchema, idParamSchema, submitWordSchema } from '../lib/validation.js';
 import {
   forfeit,
   handleSocketDisconnect,
@@ -10,7 +10,7 @@ import {
   notifyPresenceChange,
   submitWord,
 } from '../game/engine.js';
-import { gameRoom, setIo, userRoom } from './hub.js';
+import { gameRoom, lobbyRoom, setIo, userRoom } from './hub.js';
 import { presence } from './presence.js';
 
 type AuthedSocket = Socket & { data: { user: SessionUser } };
@@ -81,6 +81,24 @@ export function registerSocketServer(io: Server): void {
 
     socket.emit('session:ready', { userId: user.id, username: user.username });
 
+    // ── Lobby ────────────────────────────────────────────────────────────
+    socket.on('room:join', (payload: unknown) => {
+      if (overBudget(socket)) return;
+      const parsed = idParamSchema.safeParse(payload);
+      if (!parsed.success) return;
+      // Membership is enforced by the REST layer; this only subscribes the
+      // socket to lobby broadcasts, which carry no privileged data.
+      void socket.join(lobbyRoom(parsed.data.id));
+    });
+
+    socket.on('room:leave', (payload: unknown) => {
+      if (overBudget(socket)) return;
+      const parsed = idParamSchema.safeParse(payload);
+      if (!parsed.success) return;
+      void socket.leave(lobbyRoom(parsed.data.id));
+    });
+
+    // ── Game ─────────────────────────────────────────────────────────────
     socket.on('game:join', (payload: unknown) => {
       if (overBudget(socket)) return;
       const parsed = gameIdSchema.safeParse(payload);

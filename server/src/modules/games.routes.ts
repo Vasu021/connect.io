@@ -1,178 +1,153 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { type AuthedRequest, requireAuth } from '../lib/auth.js';
-import { badRequest, forbidden, notFound, wrap } from '../lib/errors.js';
-import { areFriends } from '../lib/friends.js';
-import { createGameLimiter } from '../lib/limits.js';
-import {
-  createGameSchema,
-  idParamSchema,
-  joinByCodeSchema,
-  paginationSchema,
-} from '../lib/validation.js';
+import { forbidden, notFound, wrap } from '../lib/errors.js';
+import { idParamSchema, leaderboardQuerySchema, paginationSchema } from '../lib/validation.js';
 import { MAX_ROUNDS, ROUND_DURATION_MS } from '../game/constants.js';
-import { createGame, findLiveByRoomCode, viewFor } from '../game/engine.js';
-import type { GameStateView, GameSummary } from '../game/types.js';
+import { viewFor } from '../game/engine.js';
+import type { ConnectionView, GameStateView, RoundView } from '../game/types.js';
 import { presence } from '../realtime/presence.js';
 
 export const gamesRouter = Router();
 
 gamesRouter.use(requireAuth);
 
-const playerSelect = { select: { id: true, username: true } } as const;
-
-const gameSelect = {
+const finishedGameSelect = {
   id: true,
-  roomCode: true,
   status: true,
   outcome: true,
   finalScore: true,
+  playerCount: true,
+  perfectCircle: true,
   currentRound: true,
   createdAt: true,
-  startedAt: true,
   endedAt: true,
-  player1Id: true,
-  player2Id: true,
-  player1: playerSelect,
-  player2: playerSelect,
+  room: { select: { id: true, code: true } },
+  players: {
+    select: {
+      userId: true,
+      status: true,
+      placement: true,
+      connectedAtRound: true,
+      user: { select: { id: true, username: true } },
+    },
+    orderBy: { joinedAt: 'asc' },
+  },
+  connections: {
+    select: {
+      placement: true,
+      word: true,
+      roundNumber: true,
+      players: { select: { userId: true } },
+    },
+    orderBy: { placement: 'asc' },
+  },
 } as const;
 
-type GameRow = {
-  id: string;
-  roomCode: string;
-  status: 'WAITING' | 'ACTIVE' | 'COMPLETED';
-  outcome: GameStateView['outcome'];
-  finalScore: number | null;
-  currentRound: number;
-  createdAt: Date;
-  endedAt: Date | null;
-  player1Id: string;
-  player2Id: string;
-  player1: { id: string; username: string };
-  player2: { id: string; username: string };
-};
+type FinishedGame = Awaited<
+  ReturnType<typeof prisma.game.findFirstOrThrow<{ select: typeof finishedGameSelect }>>
+>;
 
-function toSummary(row: GameRow, viewerId: string): GameSummary {
-  const opponent = row.player1Id === viewerId ? row.player2 : row.player1;
+function toConnections(game: FinishedGame): ConnectionView[] {
+  return game.connections.map((connection) => ({
+    placement: connection.placement,
+    word: connection.word,
+    roundNumber: connection.roundNumber,
+    memberIds: connection.players.map((player) => player.userId),
+  }));
+}
+
+function toSummary(game: FinishedGame, viewerId: string) {
+  const you = game.players.find((player) => player.userId === viewerId);
   return {
-    id: row.id,
-    roomCode: row.roomCode,
-    status: row.status,
-    outcome: row.outcome,
-    finalScore: row.finalScore,
-    currentRound: row.currentRound,
-    createdAt: row.createdAt.toISOString(),
-    endedAt: row.endedAt ? row.endedAt.toISOString() : null,
-    opponent: { ...opponent, online: presence.isOnline(opponent.id) },
-    youInvited: row.player1Id === viewerId,
+    id: game.id,
+    roomCode: game.room.code,
+    status: game.status,
+    outcome: game.outcome,
+    finalScore: game.finalScore,
+    playerCount: game.playerCount,
+    perfectCircle: game.perfectCircle,
+    currentRound: game.currentRound,
+    createdAt: game.createdAt.toISOString(),
+    endedAt: game.endedAt ? game.endedAt.toISOString() : null,
+    players: game.players.map((player) => player.user),
+    yourPlacement: you?.placement ?? null,
   };
 }
 
-/** Completed games are no longer held in memory, so their view comes from the DB. */
+/** A completed game is no longer in memory, so its view comes from the DB. */
 function completedView(
-  row: GameRow & {
+  game: FinishedGame & {
     rounds: {
       roundNumber: number;
-      player1Word: string | null;
-      player2Word: string | null;
-      matched: boolean;
       revealedAt: Date;
+      submissions: { userId: string; word: string; matched: boolean }[];
     }[];
   },
   viewerId: string,
 ): GameStateView {
-  const opponentId = row.player1Id === viewerId ? row.player2Id : row.player1Id;
+  const connections = toConnections(game);
+  const online = presence.onlineAmong(game.players.map((p) => p.userId));
+  const you = game.players.find((player) => player.userId === viewerId);
+
+  const rounds: RoundView[] = game.rounds.map((round) => ({
+    roundNumber: round.roundNumber,
+    revealedAt: round.revealedAt.toISOString(),
+    submissions: round.submissions.map((submission) => ({
+      userId: submission.userId,
+      word: submission.word,
+      matched: submission.matched,
+    })),
+    formed: connections.filter((c) => c.roundNumber === round.roundNumber),
+  }));
+
+  const playedWords: string[] = [];
+  const seen = new Set<string>();
+  for (const round of rounds) {
+    for (const submission of round.submissions) {
+      const key = submission.word.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      playedWords.push(submission.word);
+    }
+  }
+
+  const leftover = game.players.filter((player) => player.status === 'ACTIVE');
+
   return {
-    id: row.id,
-    roomCode: row.roomCode,
+    id: game.id,
+    roomId: game.room.id,
+    roomCode: game.room.code,
     status: 'COMPLETED',
-    outcome: row.outcome,
-    finalScore: row.finalScore,
-    currentRound: row.currentRound,
+    outcome: game.outcome,
+    finalScore: game.finalScore,
+    perfectCircle: game.perfectCircle,
+    currentRound: game.currentRound,
     maxRounds: MAX_ROUNDS,
     roundDurationMs: ROUND_DURATION_MS,
     roundDeadline: null,
-    players: [row.player1, row.player2].map((p) => ({
-      id: p.id,
-      username: p.username,
-      online: presence.isOnline(p.id),
-      isYou: p.id === viewerId,
+    players: game.players.map((player, index) => ({
+      id: player.userId,
+      username: player.user.username,
+      online: online.has(player.userId),
+      isYou: player.userId === viewerId,
+      status: player.status,
+      placement: player.placement,
+      connectedAtRound: player.connectedAtRound,
+      hasSubmitted: false,
+      seat: index,
     })),
     youId: viewerId,
-    opponentId,
+    youStatus: you?.status ?? 'LEFT',
     youSubmitted: false,
     youWord: null,
-    opponentSubmitted: false,
-    opponentOnline: presence.isOnline(opponentId),
-    bothPresent: false,
-    rounds: row.rounds.map((r) => ({
-      roundNumber: r.roundNumber,
-      player1Word: r.player1Word,
-      player2Word: r.player2Word,
-      matched: r.matched,
-      revealedAt: r.revealedAt.toISOString(),
-    })),
+    activeCount: leftover.length,
+    connections,
+    rounds,
+    playedWords,
+    wildcardId: leftover.length === 1 ? (leftover[0]?.userId ?? null) : null,
   };
 }
-
-// ─── Create / join ───────────────────────────────────────────────────────────
-
-gamesRouter.post(
-  '/',
-  createGameLimiter,
-  wrap(async (req, res) => {
-    const { user } = req as AuthedRequest;
-    const { friendId } = createGameSchema.parse(req.body);
-
-    if (friendId === user.id) throw badRequest('You need a partner to connect with');
-    // The score describes a relationship, so games are friends-only by design.
-    if (!(await areFriends(user.id, friendId))) {
-      throw forbidden('You can only play with friends');
-    }
-
-    const existing = await prisma.game.findFirst({
-      where: {
-        status: { in: ['WAITING', 'ACTIVE'] },
-        OR: [
-          { player1Id: user.id, player2Id: friendId },
-          { player1Id: friendId, player2Id: user.id },
-        ],
-      },
-      select: gameSelect,
-    });
-
-    // Reuse an open room rather than piling up duplicate invites.
-    if (existing) {
-      res.json({ game: toSummary(existing as GameRow, user.id), reused: true });
-      return;
-    }
-
-    const created = await createGame(user.id, friendId);
-    const row = await prisma.game.findUniqueOrThrow({
-      where: { id: created.id },
-      select: gameSelect,
-    });
-
-    res.status(201).json({ game: toSummary(row as GameRow, user.id), reused: false });
-  }),
-);
-
-gamesRouter.post(
-  '/join',
-  wrap(async (req, res) => {
-    const { user } = req as AuthedRequest;
-    const { roomCode } = joinByCodeSchema.parse(req.body);
-
-    const game = findLiveByRoomCode(roomCode);
-    if (!game) throw notFound('No open room with that code');
-    if (game.player1Id !== user.id && game.player2Id !== user.id) {
-      // Do not confirm the room exists to someone who is not invited.
-      throw notFound('No open room with that code');
-    }
-
-    res.json({ gameId: game.id });
-  }),
-);
 
 // ─── Lists ───────────────────────────────────────────────────────────────────
 
@@ -181,16 +156,16 @@ gamesRouter.get(
   wrap(async (req, res) => {
     const { user } = req as AuthedRequest;
 
-    const rows = await prisma.game.findMany({
+    const games = await prisma.game.findMany({
       where: {
         status: { in: ['WAITING', 'ACTIVE'] },
-        OR: [{ player1Id: user.id }, { player2Id: user.id }],
+        players: { some: { userId: user.id } },
       },
-      select: gameSelect,
+      select: finishedGameSelect,
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json({ games: rows.map((row) => toSummary(row as GameRow, user.id)) });
+    res.json({ games: games.map((game) => toSummary(game as FinishedGame, user.id)) });
   }),
 );
 
@@ -200,20 +175,15 @@ gamesRouter.get(
     const { user } = req as AuthedRequest;
     const { limit } = paginationSchema.parse(req.query);
 
-    const rows = await prisma.game.findMany({
-      where: {
-        status: 'COMPLETED',
-        OR: [{ player1Id: user.id }, { player2Id: user.id }],
-      },
+    const games = await prisma.game.findMany({
+      where: { status: 'COMPLETED', players: { some: { userId: user.id } } },
       select: {
-        ...gameSelect,
+        ...finishedGameSelect,
         rounds: {
           select: {
             roundNumber: true,
-            player1Word: true,
-            player2Word: true,
-            matched: true,
             revealedAt: true,
+            submissions: { select: { userId: true, word: true, matched: true } },
           },
           orderBy: { roundNumber: 'asc' },
         },
@@ -223,15 +193,16 @@ gamesRouter.get(
     });
 
     res.json({
-      games: rows.map((row) => ({
-        ...toSummary(row as GameRow, user.id),
-        players: [row.player1, row.player2],
-        rounds: row.rounds.map((r) => ({
-          roundNumber: r.roundNumber,
-          player1Word: r.player1Word,
-          player2Word: r.player2Word,
-          matched: r.matched,
-          revealedAt: r.revealedAt.toISOString(),
+      games: games.map((game) => ({
+        ...toSummary(game as FinishedGame, user.id),
+        connections: toConnections(game as FinishedGame),
+        rounds: game.rounds.map((round) => ({
+          roundNumber: round.roundNumber,
+          revealedAt: round.revealedAt.toISOString(),
+          submissions: round.submissions,
+          formed: toConnections(game as FinishedGame).filter(
+            (c) => c.roundNumber === round.roundNumber,
+          ),
         })),
       })),
     });
@@ -239,63 +210,103 @@ gamesRouter.get(
 );
 
 /**
- * Pairs, not players: a score belongs to two people. Each pair is ranked by
- * their single best (lowest) matched game.
+ * Circles ranked by how fast they closed.
+ *
+ * Bucketed by player count, because a score of 6 at eight players is a
+ * completely different achievement from 6 at two. Within a bucket each distinct
+ * group appears once, at its best result — otherwise one group that plays a lot
+ * simply fills the board with itself.
  */
 gamesRouter.get(
   '/leaderboard',
-  wrap(async (_req, res) => {
-    const rows = await prisma.game.findMany({
-      where: { status: 'COMPLETED', outcome: 'MATCHED', finalScore: { not: null } },
-      select: {
-        id: true,
-        roomCode: true,
-        finalScore: true,
-        endedAt: true,
-        player1: playerSelect,
-        player2: playerSelect,
-      },
-      orderBy: [{ finalScore: 'asc' }, { endedAt: 'desc' }],
-      take: 500,
-    });
+  wrap(async (req, res) => {
+    const { size } = leaderboardQuerySchema.parse(req.query);
+
+    const [sizes, games] = await Promise.all([
+      prisma.game.groupBy({
+        by: ['playerCount'],
+        where: { outcome: 'MATCHED', finalScore: { not: null } },
+        _count: { _all: true },
+        orderBy: { playerCount: 'asc' },
+      }),
+      prisma.game.findMany({
+        where: {
+          outcome: 'MATCHED',
+          finalScore: { not: null },
+          ...(size ? { playerCount: size } : {}),
+        },
+        select: finishedGameSelect,
+        orderBy: [{ finalScore: 'asc' }, { perfectCircle: 'desc' }, { endedAt: 'desc' }],
+        take: 500,
+      }),
+    ]);
 
     type Entry = {
-      pairKey: string;
-      players: { id: string; username: string }[];
-      bestScore: number;
+      groupKey: string;
+      gameId: string;
+      roomCode: string;
+      finalScore: number;
+      playerCount: number;
+      perfectCircle: boolean;
+      endedAt: string | null;
       games: number;
-      lastPlayed: string | null;
+      players: { id: string; username: string; placement: number | null }[];
     };
 
-    const byPair = new Map<string, Entry>();
+    const byGroup = new Map<string, Entry>();
 
-    for (const row of rows) {
-      const ids = [row.player1.id, row.player2.id].sort();
-      const pairKey = ids.join(':');
-      const score = row.finalScore as number;
-      const existing = byPair.get(pairKey);
+    for (const row of games) {
+      const game = row as FinishedGame;
+      const groupKey = game.players
+        .map((player) => player.userId)
+        .slice()
+        .sort()
+        .join(':');
 
-      if (!existing) {
-        byPair.set(pairKey, {
-          pairKey,
-          players: [row.player1, row.player2],
-          bestScore: score,
-          games: 1,
-          lastPlayed: row.endedAt ? row.endedAt.toISOString() : null,
-        });
+      const existing = byGroup.get(groupKey);
+      if (existing) {
+        // Rows arrive best-first, so the first one seen is already the best.
+        existing.games += 1;
         continue;
       }
 
-      existing.games += 1;
-      if (score < existing.bestScore) existing.bestScore = score;
+      byGroup.set(groupKey, {
+        groupKey,
+        gameId: game.id,
+        roomCode: game.room.code,
+        finalScore: game.finalScore as number,
+        playerCount: game.playerCount,
+        perfectCircle: game.perfectCircle,
+        endedAt: game.endedAt ? game.endedAt.toISOString() : null,
+        games: 1,
+        players: game.players
+          .slice()
+          .sort((a, b) => (a.placement ?? 99) - (b.placement ?? 99))
+          .map((player) => ({
+            id: player.user.id,
+            username: player.user.username,
+            placement: player.placement,
+          })),
+      });
     }
 
-    const leaderboard = [...byPair.values()]
-      .sort((a, b) => a.bestScore - b.bestScore || b.games - a.games)
+    const leaderboard = [...byGroup.values()]
+      .sort(
+        (a, b) =>
+          a.finalScore - b.finalScore ||
+          Number(b.perfectCircle) - Number(a.perfectCircle) ||
+          b.games - a.games,
+      )
       .slice(0, 20)
       .map((entry, index) => ({ rank: index + 1, ...entry }));
 
-    res.json({ leaderboard });
+    res.json({
+      availableSizes: sizes.map((row) => ({
+        playerCount: row.playerCount,
+        games: row._count._all,
+      })),
+      leaderboard,
+    });
   }),
 );
 
@@ -313,67 +324,24 @@ gamesRouter.get(
       return;
     }
 
-    const row = await prisma.game.findUnique({
+    const game = await prisma.game.findUnique({
       where: { id },
       select: {
-        ...gameSelect,
+        ...finishedGameSelect,
         rounds: {
           select: {
             roundNumber: true,
-            player1Word: true,
-            player2Word: true,
-            matched: true,
             revealedAt: true,
+            submissions: { select: { userId: true, word: true, matched: true } },
           },
           orderBy: { roundNumber: 'asc' },
         },
       },
     });
 
-    if (!row) throw notFound('Game not found');
-    if (row.player1Id !== user.id && row.player2Id !== user.id) throw forbidden();
+    if (!game) throw notFound('Game not found');
+    if (!game.players.some((player) => player.userId === user.id)) throw forbidden();
 
-    res.json({ game: completedView(row as Parameters<typeof completedView>[0], user.id) });
-  }),
-);
-
-gamesRouter.post(
-  '/:id/rematch',
-  createGameLimiter,
-  wrap(async (req, res) => {
-    const { user } = req as AuthedRequest;
-    const { id } = idParamSchema.parse(req.params);
-
-    const row = await prisma.game.findUnique({
-      where: { id },
-      select: { player1Id: true, player2Id: true },
-    });
-
-    if (!row) throw notFound('Game not found');
-    if (row.player1Id !== user.id && row.player2Id !== user.id) throw forbidden();
-
-    const opponentId = row.player1Id === user.id ? row.player2Id : row.player1Id;
-    if (!(await areFriends(user.id, opponentId))) {
-      throw forbidden('You are no longer friends');
-    }
-
-    const open = await prisma.game.findFirst({
-      where: {
-        status: { in: ['WAITING', 'ACTIVE'] },
-        OR: [
-          { player1Id: user.id, player2Id: opponentId },
-          { player1Id: opponentId, player2Id: user.id },
-        ],
-      },
-      select: { id: true },
-    });
-
-    if (open) {
-      res.json({ gameId: open.id, reused: true });
-      return;
-    }
-
-    const created = await createGame(user.id, opponentId);
-    res.status(201).json({ gameId: created.id, reused: false });
+    res.json({ game: completedView(game as Parameters<typeof completedView>[0], user.id) });
   }),
 );

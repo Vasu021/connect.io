@@ -91,6 +91,49 @@ export function api(server: TestServer) {
       return { id: body.user.id, username: body.user.username, cookie: sessionCookie(response) };
     },
 
+    /** Creates a room with this user as host. */
+    async createRoom(
+      host: TestUser,
+      options: { password?: string; maxPlayers?: number; name?: string } = {},
+    ): Promise<{ id: string; code: string }> {
+      const result = await request('POST', '/api/rooms', {
+        body: { maxPlayers: options.maxPlayers ?? 8, ...options },
+        cookie: host.cookie,
+      });
+      if (result.status !== 201) {
+        throw new Error(`createRoom failed: ${result.status} ${JSON.stringify(result.body)}`);
+      }
+      const room = result.body.room as { id: string; code: string };
+      return room;
+    },
+
+    /** Invites a user, then has them accept by joining with the room code. */
+    async inviteAndJoin(host: TestUser, roomId: string, code: string, guest: TestUser) {
+      const invited = await request('POST', `/api/rooms/${roomId}/invite`, {
+        body: { userId: guest.id },
+        cookie: host.cookie,
+      });
+      if (invited.status !== 201) {
+        throw new Error(`invite failed: ${invited.status} ${JSON.stringify(invited.body)}`);
+      }
+      // No password supplied: the invite is the authorisation.
+      const joined = await request('POST', '/api/rooms/join', {
+        body: { code },
+        cookie: guest.cookie,
+      });
+      if (joined.status !== 200) {
+        throw new Error(`join failed: ${joined.status} ${JSON.stringify(joined.body)}`);
+      }
+    },
+
+    async startRoom(host: TestUser, roomId: string): Promise<string> {
+      const result = await request('POST', `/api/rooms/${roomId}/start`, { cookie: host.cookie });
+      if (result.status !== 200) {
+        throw new Error(`start failed: ${result.status} ${JSON.stringify(result.body)}`);
+      }
+      return (result.body as { gameId: string }).gameId;
+    },
+
     /** Makes two users friends by sending and accepting a request. */
     async befriend(a: TestUser, b: TestUser): Promise<void> {
       const sent = await request('POST', '/api/friends/request', {

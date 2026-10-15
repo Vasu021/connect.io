@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Brand } from '../components/Brand';
-import { RoundTrail } from '../components/RoundTrail';
+import { Standings } from '../components/Standings';
 import { ApiError, api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { outcomeLabel, timeAgo } from '../lib/format';
+import { ordinal, placementColor } from '../lib/placement';
 import type { HistoryGame } from '../lib/types';
 
 export default function HistoryPage() {
@@ -22,7 +23,6 @@ export default function HistoryPage() {
       .then((data) => {
         if (cancelled) return;
         setGames(data.games);
-        // Open the most recent game so the page is not a wall of closed rows.
         setOpenId(data.games[0]?.id ?? null);
       })
       .catch((err: unknown) => {
@@ -52,8 +52,8 @@ export default function HistoryPage() {
           <span className="small faint">{games.length} finished</span>
         </div>
         <p className="muted small" style={{ margin: 0 }}>
-          The words you burned getting there are the interesting part — open a game to read the
-          trail.
+          The words everyone burned on the way are the interesting part — open a game to read the
+          whole circle.
         </p>
       </div>
 
@@ -68,14 +68,14 @@ export default function HistoryPage() {
         </div>
       ) : games.length === 0 ? (
         <div className="card">
-          <div className="empty">No finished games yet. Go connect with someone.</div>
+          <div className="empty">No finished games yet. Go close a circle.</div>
         </div>
       ) : (
         <div className="stack">
           {games.map((game) => {
             const open = openId === game.id;
-            const youArePlayer1 = game.players[0]?.id === user?.id;
             const matched = game.outcome === 'MATCHED' && game.finalScore !== null;
+            const others = game.players.filter((player) => player.id !== user?.id);
 
             return (
               <section className="card" key={game.id}>
@@ -98,22 +98,82 @@ export default function HistoryPage() {
                     </span>
                     <div className="row-label">
                       <div className="row-name">
-                        vs @{game.opponent.username}
+                        {game.playerCount} players
                         <span className="faint small"> · {outcomeLabel(game.outcome)}</span>
+                        {game.perfectCircle ? (
+                          <span className="pill pill-match" style={{ marginLeft: 8 }}>
+                            perfect
+                          </span>
+                        ) : null}
                       </div>
                       <div className="small faint">
-                        {game.rounds.length} {game.rounds.length === 1 ? 'round' : 'rounds'} ·{' '}
-                        {timeAgo(game.endedAt)} · room{' '}
-                        <span className="mono-code">{game.roomCode}</span>
+                        {others.map((player) => `@${player.username}`).join(', ')} ·{' '}
+                        {timeAgo(game.endedAt)}
                       </div>
                     </div>
                   </div>
-                  <span className="pill">{open ? 'Hide' : 'Trail'}</span>
+                  <div className="list-row-actions">
+                    {game.yourPlacement ? (
+                      <span
+                        className="placement"
+                        style={{ background: placementColor(game.yourPlacement) }}
+                        title={`You connected ${ordinal(game.yourPlacement)}`}
+                      >
+                        {game.yourPlacement}
+                      </span>
+                    ) : null}
+                    <span className="pill">{open ? 'Hide' : 'Open'}</span>
+                  </div>
                 </button>
 
                 {open ? (
-                  <div style={{ marginTop: 14 }}>
-                    <RoundTrail rounds={game.rounds} youArePlayer1={youArePlayer1} />
+                  <div className="stack" style={{ marginTop: 14 }}>
+                    <Standings
+                      connections={game.connections}
+                      players={game.players.map((player) => ({
+                        ...player,
+                        isYou: player.id === user?.id,
+                      }))}
+                    />
+
+                    <div>
+                      <div className="tiny" style={{ marginBottom: 6 }}>
+                        Round by round
+                      </div>
+                      <div className="trail">
+                        {game.rounds.map((round) => (
+                          <div
+                            className={`trail-row${round.formed.length ? ' is-matched' : ''}`}
+                            key={round.roundNumber}
+                            style={{ gridTemplateColumns: '34px 1fr' }}
+                          >
+                            <span className="trail-num">{round.roundNumber}</span>
+                            <div className="row row-wrap" style={{ gap: 6 }}>
+                              {round.submissions.map((submission) => {
+                                const player = game.players.find(
+                                  (candidate) => candidate.id === submission.userId,
+                                );
+                                return (
+                                  <span
+                                    className="pill"
+                                    key={submission.userId}
+                                    style={
+                                      submission.matched ? { color: 'var(--match)' } : undefined
+                                    }
+                                  >
+                                    {player?.id === user?.id ? 'you' : player?.username}:{' '}
+                                    {submission.word}
+                                  </span>
+                                );
+                              })}
+                              {round.submissions.length === 0 ? (
+                                <span className="faint small">nobody spoke</span>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 ) : null}
               </section>

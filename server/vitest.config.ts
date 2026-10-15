@@ -19,7 +19,9 @@ export default defineConfig({
       REVEAL_PAUSE_MS: '150',
       RECONNECT_GRACE_MS: '600',
       PRESENCE_ANNOUNCE_DELAY_MS: '120',
-      MAX_ROUNDS: '3',
+      MAX_ROUNDS: '5',
+      START_GRACE_MS: '2000',
+      MAX_MISSED_ROUNDS: '3',
     },
   },
 });

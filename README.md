@@ -2,9 +2,9 @@
 
 # connect.io
 
-**How well do you two actually think alike?**
+**How closely do you lot actually think alike?**
 
-A two-player word game that measures the distance between two minds — and gives it a number.
+A real-time word game for 2–8 players that turns a group's shared instinct into a number.
 
 </div>
 
@@ -12,44 +12,63 @@ A two-player word game that measures the distance between two minds — and give
 
 ## The idea
 
-Two friends enter a room. Each round, you both get **15 seconds to type one word**. Neither of you can see the other's word. Then both words reveal at the same time.
+Everyone sits in a circle. Each round you get **15 seconds to type one word**, submitted blind. Then every word reveals at once.
 
-Say the same word, and the game ends immediately.
+**Say the same word as anyone else and you connect.** You leave the circle together as a numbered Connection — the first group out is **#1**, the next **#2** — and then you watch the rest.
 
-**Your score is the round you landed on. Lower is better.**
+Play until everyone is connected, or one player is left alone.
 
 ```
-Round 1    king   ·   football     no match
-Round 2    messi  ·   ronaldo      no match
-Round 3    fifa   ·   fifa         connected  →  score 3
+Round 3    a · d · e   all say "ocean"     →  Connection #1     5 left
+Round 5    b · c       both say "signal"   →  Connection #2     3 left
+Round 6    f · g       both say "amber"    →  Connection #3     1 left
+
+h is the Wildcard. The circle closed in 6 rounds.
 ```
 
-That's the whole game.
+**Lower is better.**
 
-## Why it's not just a word game
+## The one rule that makes it a game
 
-The scoring inversion is doing all the work:
+**A word played once can never be played again — by anyone.**
 
-- **There is no opponent.** You both want the same thing, so it's co-op. You're not beating each other — you're beating the gap between you.
-- **The score belongs to the pair, not the player.** That's why the leaderboard ranks `alice + bob`, never a single name. A high rank is a claim about a friendship.
-- **The failed rounds are the point.** `king → messi → fifa` is two people visibly negotiating their way to a shared idea. connect.io keeps every one of those trails so you can read them back.
-- **A score of 1 is the brag.** It can't be practised or farmed. Either you landed on the same word first try, or you didn't.
+Without it, round two is just "everyone copies the most popular word from round one" and every game ends immediately. With it, you have to find a *new* middle every round, and the words spiral inward:
 
-Games are friends-only on purpose: the number means nothing with a stranger.
+```
+king → messi → fifa
+```
+
+That trail is the interesting part, and connect.io keeps every one of them — on
+screen while you play, not just in the history afterwards. The one thing you
+never see is what anyone wrote **this** round, until it reveals.
+
+## Two things to be good at
+
+|  |  |
+|---|---|
+| **Placement** | Personal. Connect early and you're #1. |
+| **Room score** | Shared. The round the circle finally closed — everyone wants it low. |
+
+A **Perfect Circle** is when nobody is left over. It's possible at any player count, because a Connection can be three or more people. It's the thing to chase.
+
+The player left standing alone is the **Wildcard** — a badge, not a failure. Nobody else was in that head.
 
 ## What you can do
 
 | | |
 |---|---|
-| **Play** | Real-time 15-second rounds, simultaneous reveal, live opponent status |
-| **Invite** | Start a game from your friends list — it appears on their dashboard instantly |
-| **Join by code** | Every room gets a short code like `K7MW2P` |
-| **Reconnect** | Drop out mid-game and you have 30 seconds to get back before it's abandoned |
-| **Rematch** | One click from the result screen |
-| **Leaderboard** | Pairs ranked by their best score |
-| **History** | Every finished game, with the full word-by-word trail |
-| **Profile** | Your best score, average, and the partners you connect with fastest |
-| **Friends** | Search, request, accept, reject, cancel, unfriend — with live online presence |
+| **Rooms** | Create one, name it, set a password, pick a size from 2 to 8 |
+| **Invite anyone** | From your friends list or by searching every player — **you don't have to be friends to play** |
+| **Join by code** | Six readable characters like `K7MW2P`. Invited players skip the password |
+| **Host controls** | Only the host starts the game, sets the round length (10–60s), and can remove players |
+| **Nothing to memorise** | Every word already said stays on screen while you think — large and legible beside whoever said it, in a highlighted panel under the word box, and in a full round log |
+| **Live circle** | Watch chords snap between players the moment a Connection forms |
+| **Reconnect** | Drop out mid-game and you have 30 seconds to get back |
+| **Leaderboard** | Fastest circles, bucketed by player count, each group listed at its best |
+| **History** | Every finished game with the full round-by-round trail |
+| **Profile** | Best circle, average placement, and the people you connect with fastest |
+
+At two players it's the original game, unchanged: you match, you both connect, and the score is the round you landed on.
 
 ## Quick start
 
@@ -60,11 +79,11 @@ git clone <your-fork-url> connect.io
 cd connect.io
 
 npm install
-npm run db:up        # starts Postgres on port 5433
-npm run db:push      # creates the schema
+npm run db:up        # Postgres on port 5433
+npm run db:push      # create the schema
 ```
 
-Create `server/.env` (copy `server/.env.example`) and set a secret:
+Create `server/.env` and give it a real secret:
 
 ```bash
 cp server/.env.example server/.env
@@ -80,15 +99,15 @@ npm run dev
 - App → **http://localhost:5173**
 - API → http://localhost:4000
 
-Open a second browser (or an incognito window) to play as the other person.
+### Playing locally with yourself
 
-## Playing your first game
+Eight accounts is a lot of sign-up forms, so there's a seeder:
 
-1. Register two accounts in two browsers.
-2. In one, search the other's username and send a friend request.
-3. Accept it in the other window.
-4. Hit **Play** next to their name. The invite appears on their dashboard immediately — no link to paste.
-5. Both of you are in: the clock starts.
+```bash
+npm run seed:demo --workspace server
+```
+
+That creates `demo1` … `demo8` (password `connect-io-demo-pass`), all friends with `demo1`. Open them in separate browser profiles or incognito windows, create a room as `demo1`, invite the rest, and start.
 
 ## Built with
 
@@ -96,13 +115,14 @@ Open a second browser (or an incognito window) to play as the other person.
 **Backend** Node · Express 5 · Socket.IO · Prisma · PostgreSQL · Zod
 **Security** httpOnly cookie sessions, bcrypt, Helmet, per-route rate limiting
 
-Run the test suite with `npm test` (68 tests covering the round engine, scoring, abandonment, auth and authorisation).
+`npm test` runs 91 server tests covering the round engine, grouping and placement, the no-repeat rule, scoring, abandonment, rooms and authorisation.
 
 ## Docs
 
-- [`DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md) — architecture, data model, realtime protocol, how to work on it
+- [`GAME.md`](./GAME.md) — the rules in full
+- [`DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md) — architecture, data model, realtime protocol
 - [`TASKS.md`](./TASKS.md) — what's done and what's next
-- [`CLAUDE.md`](./CLAUDE.md) — conventions and context for AI assistants
+- [`CLAUDE.md`](./CLAUDE.md) — conventions and invariants for AI assistants
 
 ## License
 

@@ -1,27 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Avatar, OnlineDot } from '../components/Avatar';
 import { Brand } from '../components/Brand';
+import { Circle } from '../components/Circle';
 import { Confetti } from '../components/Confetti';
 import { CountdownRing } from '../components/CountdownRing';
-import { Reveal } from '../components/Reveal';
-import { RoundTrail } from '../components/RoundTrail';
+import { PlayedWords } from '../components/PlayedWords';
+import { LastRound, RoundHistory } from '../components/RoundHistory';
+import { Standings } from '../components/Standings';
 import { ApiError, api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { outcomeLabel, scoreHeadline } from '../lib/format';
+import { ordinal, placementColor } from '../lib/placement';
 import { useSocket, useSocketEvent } from '../lib/socket';
 import { useToast } from '../lib/toasts';
 import type {
+  ConnectionFormedPayload,
   GameEndedPayload,
   GameStateView,
+  PlayerLeftPayload,
+  PlayerView,
   PresencePayload,
   RoundRevealedPayload,
   RoundStartedPayload,
-  RoundView,
 } from '../lib/types';
 
 /** Leave emits waiting out their grace window, keyed by game id. */
 const pendingLeaves = new Map<string, number>();
+
+/** How long the result stays up before everyone is returned to the dashboard. */
+const REDIRECT_SECONDS = 25;
 
 export default function GamePage() {
   const { gameId } = useParams<{ gameId: string }>();
@@ -32,12 +38,14 @@ export default function GamePage() {
 
   const [state, setState] = useState<GameStateView | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [reveal, setReveal] = useState<RoundView | null>(null);
+  const [revealed, setRevealed] = useState<Map<string, { word: string; matched: boolean }> | null>(
+    null,
+  );
   const [ended, setEnded] = useState<GameEndedPayload | null>(null);
   const [word, setWord] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const [celebrating, setCelebrating] = useState(false);
-  const [rematching, setRematching] = useState(false);
+  const [redirectIn, setRedirectIn] = useState(REDIRECT_SECONDS);
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -57,9 +65,17 @@ export default function GamePage() {
             gameId: data.game.id,
             outcome: data.game.outcome ?? 'UNMATCHED',
             finalScore: data.game.finalScore,
-            rounds: data.game.rounds,
+            perfectCircle: data.game.perfectCircle,
+            connections: data.game.connections,
+            wildcardId: data.game.wildcardId,
             reason: null,
-            players: data.game.players,
+            players: data.game.players.map((player) => ({
+              id: player.id,
+              username: player.username,
+              status: player.status,
+              placement: player.placement,
+              connectedAtRound: player.connectedAtRound,
+            })),
           });
         }
       })
@@ -79,8 +95,8 @@ export default function GamePage() {
   useEffect(() => {
     if (!socket || !gameId) return;
 
-    // A remount (React StrictMode in development, or a quick re-render) would
-    // otherwise fire the queued "I left" from the previous cleanup.
+    // A remount (React StrictMode in development) must not fire the queued
+    // "I left" from the previous cleanup.
     const queued = pendingLeaves.get(gameId);
     if (queued !== undefined) {
       window.clearTimeout(queued);
@@ -93,9 +109,6 @@ export default function GamePage() {
 
     return () => {
       socket.off('connect', join);
-      // Tell the server we have left so our partner is not left waiting on a
-      // player who has navigated away — but hold it briefly, so a remount can
-      // cancel it before the other player ever hears about it.
       const handle = window.setTimeout(() => {
         pendingLeaves.delete(gameId);
         socket.emit('game:leave', { gameId });
@@ -113,7 +126,7 @@ export default function GamePage() {
 
   useSocketEvent<RoundStartedPayload>('round:started', (payload) => {
     if (payload.gameId !== gameId) return;
-    setReveal(null);
+    setRevealed(null);
     setWord('');
     setState((current) =>
       current
@@ -124,19 +137,55 @@ export default function GamePage() {
             roundDeadline: payload.deadlineAt,
             youSubmitted: false,
             youWord: null,
-            opponentSubmitted: false,
+            players: current.players.map((player) => ({ ...player, hasSubmitted: false })),
           }
         : current,
     );
-    // Put the caret back in the box so a player can just keep typing.
     requestAnimationFrame(() => inputRef.current?.focus());
   });
 
   useSocketEvent<RoundRevealedPayload>('round:revealed', (payload) => {
     if (payload.gameId !== gameId) return;
-    setReveal(payload.round);
+
+    setRevealed(
+      new Map(
+        payload.round.submissions.map((submission) => [
+          submission.userId,
+          { word: submission.word, matched: submission.matched },
+        ]),
+      ),
+    );
+
     setState((current) =>
-      current ? { ...current, rounds: payload.rounds, roundDeadline: null } : current,
+      current
+        ? {
+            ...current,
+            rounds: [...current.rounds.filter((r) => r.roundNumber !== payload.round.roundNumber), payload.round],
+            playedWords: payload.playedWords,
+            roundDeadline: null,
+          }
+        : current,
+    );
+  });
+
+  useSocketEvent<ConnectionFormedPayload>('connection:formed', (payload) => {
+    if (payload.gameId !== gameId) return;
+    const yours = payload.connection.memberIds.includes(user?.id ?? '');
+    toast.show(
+      yours
+        ? `You connected on "${payload.connection.word}" — ${ordinal(payload.connection.placement)}!`
+        : `Connection #${payload.connection.placement}: "${payload.connection.word}"`,
+      yours ? 'good' : 'info',
+    );
+  });
+
+  useSocketEvent<PlayerLeftPayload>('player:left', (payload) => {
+    if (payload.gameId !== gameId) return;
+    toast.show(
+      payload.reason === 'idle'
+        ? `@${payload.username} went quiet and left the circle`
+        : `@${payload.username} dropped out`,
+      'bad',
     );
   });
 
@@ -150,7 +199,9 @@ export default function GamePage() {
             status: 'COMPLETED',
             outcome: payload.outcome,
             finalScore: payload.finalScore,
-            rounds: payload.rounds,
+            perfectCircle: payload.perfectCircle,
+            connections: payload.connections,
+            wildcardId: payload.wildcardId,
             roundDeadline: null,
           }
         : current,
@@ -164,93 +215,90 @@ export default function GamePage() {
 
   useSocketEvent<PresencePayload>('game:presence', (payload) => {
     if (payload.gameId !== gameId || payload.userId === user?.id) return;
-
-    // The indicator always tracks the truth; the toast only fires for drops
-    // long enough that the server actually announced them.
-    setState((current) =>
-      current ? { ...current, opponentOnline: payload.online } : current,
-    );
-
     if (!payload.announced) return;
-
-    if (payload.online) {
-      toast.show(`@${payload.username} is back`, 'good');
-    } else {
-      const seconds = Math.round((payload.graceMs ?? 0) / 1000);
-      toast.show(
-        seconds > 0
-          ? `@${payload.username} dropped — ${seconds}s to reconnect`
-          : `@${payload.username} went offline`,
-        'bad',
-      );
-    }
+    toast.show(
+      payload.online
+        ? `@${payload.username} is back`
+        : `@${payload.username} dropped — ${Math.round((payload.graceMs ?? 0) / 1000)}s to reconnect`,
+      payload.online ? 'good' : 'bad',
+    );
   });
 
   useSocketEvent<{ message: string }>('game:error', (payload) => {
     toast.show(payload.message, 'bad');
   });
 
-  /* ── Countdown ────────────────────────────────────────────────────────── */
+  /* ── Countdown, derived during render ─────────────────────────────────── */
 
   const deadline = state?.roundDeadline ?? null;
 
-  // The remaining time is derived during render rather than stored in state.
-  // Storing it meant the first paint of a round showed 0s — an empty, red,
-  // "urgent" ring that then swept back to full.
   useEffect(() => {
     if (deadline === null) return;
-
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 200);
-
     return () => window.clearInterval(timer);
   }, [deadline]);
 
+  /* ── Redirect everyone home once the room is gone ─────────────────────── */
+
+  useEffect(() => {
+    if (!ended) return;
+    setRedirectIn(REDIRECT_SECONDS);
+
+    const timer = window.setInterval(() => {
+      setRedirectIn((current) => {
+        if (current <= 1) {
+          window.clearInterval(timer);
+          navigate('/', { replace: true });
+          return 0;
+        }
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [ended, navigate]);
+
   /* ── Derived ──────────────────────────────────────────────────────────── */
 
-  const youArePlayer1 = useMemo(() => state?.players[0]?.isYou ?? true, [state]);
-  const you = useMemo(() => state?.players.find((p) => p.isYou), [state]);
-  const them = useMemo(() => state?.players.find((p) => !p.isYou), [state]);
   const totalSeconds = Math.round((state?.roundDurationMs ?? 15000) / 1000);
-  // Clamped so a `now` that lags a fresh deadline by one tick cannot read high.
   const secondsLeft =
     deadline === null
       ? 0
       : Math.min(totalSeconds, Math.max(0, Math.ceil((deadline - now) / 1000)));
 
+  // The last resolved round. Its words stay on screen while everyone thinks —
+  // you cannot aim for the middle of words you had three seconds to memorise.
+  const lastRound = state?.rounds[state.rounds.length - 1] ?? null;
+
+  const seatWords = useMemo(() => {
+    if (revealed) return revealed;
+    if (!lastRound) return undefined;
+    return new Map(
+      lastRound.submissions.map((submission) => [
+        submission.userId,
+        { word: submission.word, matched: submission.matched },
+      ]),
+    );
+  }, [revealed, lastRound]);
+
+  const showingPreviousWords = revealed === null && lastRound !== null;
+
+  const trimmed = word.trim();
+  const alreadyPlayed = useMemo(() => {
+    if (!trimmed || !state) return false;
+    const needle = trimmed.toLowerCase();
+    return state.playedWords.some((played) => played.toLowerCase() === needle);
+  }, [trimmed, state]);
+
   const submit = useCallback(
     (event: FormEvent) => {
       event.preventDefault();
-      const candidate = word.trim();
-      if (!socket || !gameId || !candidate) return;
-      socket.emit('game:submit', { gameId, word: candidate });
+      if (!socket || !gameId || !trimmed || alreadyPlayed) return;
+      socket.emit('game:submit', { gameId, word: trimmed });
     },
-    [gameId, socket, word],
+    [alreadyPlayed, gameId, socket, trimmed],
   );
-
-  async function requestRematch() {
-    if (!gameId || rematching) return;
-    setRematching(true);
-
-    try {
-      const data = await api.post<{ gameId: string }>(`/api/games/${gameId}/rematch`);
-      navigate(`/game/${data.gameId}`);
-    } catch (err) {
-      toast.show(err instanceof ApiError ? err.message : 'Could not start a rematch', 'bad');
-    } finally {
-      setRematching(false);
-    }
-  }
-
-  function copyRoomCode() {
-    if (!state) return;
-    void navigator.clipboard
-      ?.writeText(state.roomCode)
-      .then(() => toast.show('Room code copied', 'good'))
-      .catch(() => toast.show(`Room code: ${state.roomCode}`, 'info'));
-  }
-
-  /* ── Render ───────────────────────────────────────────────────────────── */
 
   if (loadError) {
     return (
@@ -269,21 +317,21 @@ export default function GamePage() {
     );
   }
 
-  if (!state || !you || !them) {
+  if (!state) {
     return (
       <div className="shell">
         <header className="topbar">
           <Brand />
         </header>
         <div className="card arena-main">
-          <div className="skeleton" style={{ height: 148, borderRadius: 999, width: 148, margin: '0 auto' }} />
-          <div className="muted small">Opening the room…</div>
+          <div className="muted small">Opening the circle…</div>
         </div>
       </div>
     );
   }
 
   const isOver = state.status === 'COMPLETED' && ended !== null;
+  const youAreOut = state.youStatus !== 'ACTIVE';
 
   return (
     <div className="shell">
@@ -292,18 +340,15 @@ export default function GamePage() {
       <header className="topbar">
         <Brand />
         <div className="topbar-actions">
-          <button className="btn btn-ghost btn-sm mono-code" onClick={copyRoomCode} title="Copy room code">
-            {state.roomCode}
-          </button>
+          <span className="pill mono-code">{state.roomCode}</span>
+          {isOver ? (
+            <span className="pill">{state.players.length} players</span>
+          ) : (
+            <span className="pill">
+              {state.activeCount} of {state.players.length} still in
+            </span>
+          )}
           {!connected ? <span className="pill pill-warn">reconnecting…</span> : null}
-          {state.status === 'ACTIVE' ? (
-            <button
-              className="btn btn-ghost btn-sm btn-danger"
-              onClick={() => socket?.emit('game:forfeit', { gameId })}
-            >
-              End game
-            </button>
-          ) : null}
           <Link className="btn btn-ghost btn-sm" to="/">
             Leave
           </Link>
@@ -311,132 +356,121 @@ export default function GamePage() {
       </header>
 
       <div className="arena">
-        {isOver ? (
-          <ResultCard
-            ended={ended}
-            youArePlayer1={youArePlayer1}
-            onRematch={requestRematch}
-            rematching={rematching}
-          />
-        ) : (
-          <section className="card arena-main">
-            <div className="versus">
-              <div className="versus-side">
-                <Avatar username={you.username} side="you" large />
-                <span className="versus-name" style={{ color: 'var(--you)' }}>
-                  you
-                </span>
-                {state.youSubmitted ? (
-                  <span className="pill pill-you">locked in</span>
-                ) : (
-                  <span className="pill">thinking</span>
-                )}
+        <section className="card arena-main">
+          <Circle
+            players={state.players}
+            connections={state.connections}
+            revealed={seatWords}
+            wordsArePrevious={showingPreviousWords}
+            wildcardId={isOver ? state.wildcardId : null}
+          >
+            {isOver ? (
+              <CentreResult ended={ended} />
+            ) : state.status === 'WAITING' ? (
+              <div className="stack" style={{ gap: 6 }}>
+                <div className="ring-label faint">—</div>
+                <div className="tiny">getting ready</div>
               </div>
-
-              <div className={`versus-link${reveal?.matched ? ' is-connected' : ''}`} />
-
-              <div className="versus-side">
-                <Avatar username={them.username} side="them" large />
-                <span className="versus-name" style={{ color: 'var(--them)' }}>
-                  @{them.username}
-                </span>
-                {!state.opponentOnline ? (
-                  <span className="pill pill-warn">offline</span>
-                ) : state.opponentSubmitted ? (
-                  <span className="pill pill-them">locked in</span>
-                ) : (
-                  <span className="pill pill-them">
-                    <span className="thinking" aria-hidden="true">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {state.status === 'WAITING' ? (
-              <WaitingPanel opponent={them.username} online={state.opponentOnline} roomCode={state.roomCode} />
-            ) : reveal ? (
-              <>
-                <Reveal round={reveal} youArePlayer1={youArePlayer1} />
-                <div className="status-line">
-                  {reveal.matched
-                    ? 'You landed on the same word.'
-                    : 'Not this time — next round starting…'}
-                </div>
-              </>
             ) : deadline === null ? (
-              // ACTIVE but no deadline yet: the round is still being set up.
-              // Rendering the clock here would flash an empty, urgent-red ring.
-              <div className="stack" style={{ alignItems: 'center', gap: 12 }}>
-                <div className="ring-wrap">
-                  <span className="ring-label faint">—</span>
-                  <span className="ring-sub">getting ready</span>
-                </div>
-                <div className="status-line">Starting the round…</div>
+              <div className="stack" style={{ gap: 6 }}>
+                <div className="ring-label faint">—</div>
+                <div className="tiny">revealing</div>
               </div>
             ) : (
-              <>
-                <CountdownRing
-                  secondsLeft={secondsLeft}
-                  totalSeconds={totalSeconds}
-                  caption={`round ${state.currentRound} / ${state.maxRounds}`}
-                />
-
-                {state.youSubmitted ? (
-                  <div className="stack" style={{ alignItems: 'center' }}>
-                    <div className="locked-word">
-                      <span aria-hidden="true">🔒</span>
-                      {state.youWord}
-                    </div>
-                    <div className="status-line">
-                      {state.opponentSubmitted
-                        ? 'Both in. Revealing…'
-                        : `Waiting for @${them.username}…`}
-                    </div>
-                  </div>
-                ) : (
-                  <form className="word-form" onSubmit={submit}>
-                    <input
-                      ref={inputRef}
-                      className="input word-input"
-                      value={word}
-                      maxLength={32}
-                      onChange={(e) => setWord(e.target.value)}
-                      placeholder="one word"
-                      autoComplete="off"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                      autoFocus
-                      aria-label="Your word for this round"
-                    />
-                    <button className="btn btn-primary" disabled={!word.trim()}>
-                      Lock in
-                    </button>
-                  </form>
-                )}
-
-                {!state.youSubmitted ? (
-                  <div className="status-line">
-                    One word. No spaces. You both reveal at once.
-                  </div>
-                ) : null}
-              </>
+              <CountdownRing
+                secondsLeft={secondsLeft}
+                totalSeconds={totalSeconds}
+                caption={`round ${state.currentRound} / ${state.maxRounds}`}
+              />
             )}
-          </section>
-        )}
+          </Circle>
 
-        <section className="card">
-          <div className="card-head">
-            <h2>The trail</h2>
-            <span className="small faint">
-              {state.rounds.length} {state.rounds.length === 1 ? 'round' : 'rounds'}
-            </span>
-          </div>
-          <RoundTrail rounds={state.rounds} youArePlayer1={youArePlayer1} />
+          {isOver ? (
+            <Result ended={ended} players={state.players} redirectIn={redirectIn} />
+          ) : state.status === 'WAITING' ? (
+            <div className="status-line">Waiting for everyone to arrive…</div>
+          ) : revealed ? (
+            <RevealSummary
+              revealed={revealed}
+              players={state.players}
+              formed={state.rounds[state.rounds.length - 1]?.formed ?? []}
+            />
+          ) : youAreOut ? (
+            <SpectatorPanel status={state.youStatus} placement={state.youStatus === 'CONNECTED' ? state.players.find((p) => p.isYou)?.placement ?? null : null} />
+          ) : state.youSubmitted ? (
+            <div className="stack" style={{ alignItems: 'center' }}>
+              <div className="locked-word">
+                <span aria-hidden="true">🔒</span>
+                {state.youWord}
+              </div>
+              <div className="status-line">
+                {state.players.filter((p) => p.status === 'ACTIVE' && p.hasSubmitted).length} of{' '}
+                {state.activeCount} locked in
+              </div>
+              {lastRound ? <LastRound round={lastRound} players={state.players} /> : null}
+            </div>
+          ) : (
+            <>
+              <form className="word-form" onSubmit={submit}>
+                <input
+                  ref={inputRef}
+                  className={`input word-input${alreadyPlayed ? ' input-error' : ''}`}
+                  value={word}
+                  maxLength={32}
+                  onChange={(e) => setWord(e.target.value)}
+                  placeholder="one word"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  autoFocus
+                  aria-label="Your word for this round"
+                />
+                <button className="btn btn-primary" disabled={!trimmed || alreadyPlayed}>
+                  Lock in
+                </button>
+              </form>
+              {lastRound ? <LastRound round={lastRound} players={state.players} /> : null}
+
+              <div className="status-line">
+                {alreadyPlayed ? (
+                  <span style={{ color: 'var(--danger)' }}>
+                    “{trimmed}” has already been played — find another.
+                  </span>
+                ) : lastRound ? (
+                  'Aim for the middle of what everyone just said.'
+                ) : (
+                  'One new word. Match anyone else and you both connect.'
+                )}
+              </div>
+            </>
+          )}
         </section>
+
+        <div className="dashboard-grid">
+          <section className="card">
+            <div className="card-head">
+              <h2>Every round</h2>
+              <span className="small faint">{state.rounds.length} played</span>
+            </div>
+            <RoundHistory rounds={state.rounds} players={state.players} />
+          </section>
+
+          <section className="card">
+            <div className="card-head">
+              <h2>Connections</h2>
+              <span className="small faint">{state.connections.length} so far</span>
+            </div>
+            <Standings connections={state.connections} players={state.players} />
+          </section>
+
+          <section className="card">
+            <div className="card-head">
+              <h2>Played words</h2>
+              <span className="small faint">{state.playedWords.length} burned</span>
+            </div>
+            <PlayedWords words={state.playedWords} />
+          </section>
+        </div>
       </div>
     </div>
   );
@@ -444,110 +478,186 @@ export default function GamePage() {
 
 /* ─── Sub-views ──────────────────────────────────────────────────────────── */
 
-function WaitingPanel({
-  opponent,
-  online,
-  roomCode,
-}: {
-  opponent: string;
-  online: boolean;
-  roomCode: string;
-}) {
+function CentreResult({ ended }: { ended: GameEndedPayload }) {
+  const matched = ended.outcome === 'MATCHED' && ended.finalScore !== null;
   return (
-    <div className="stack" style={{ alignItems: 'center', gap: 14 }}>
-      <h2 style={{ fontSize: 22 }}>Waiting for @{opponent}</h2>
-      <p className="muted small" style={{ maxWidth: '40ch' }}>
-        The first round starts the moment you are both in the room.
-      </p>
-      <div className="row">
-        <OnlineDot online={online} />
-        <span className="small muted">
-          {online ? `@${opponent} is online — they should be here any second` : `@${opponent} is offline`}
-        </span>
+    <div className="stack" style={{ gap: 2 }}>
+      <div
+        className="ring-label"
+        style={{ color: matched ? 'var(--match)' : 'var(--text-faint)' }}
+      >
+        {matched ? ended.finalScore : '—'}
       </div>
-      <div className="pill">
-        room <span className="mono-code">{roomCode}</span>
+      <div className="tiny">{matched ? 'rounds' : 'no score'}</div>
+    </div>
+  );
+}
+
+function SpectatorPanel({
+  status,
+  placement,
+}: {
+  status: 'CONNECTED' | 'LEFT' | 'ACTIVE';
+  placement: number | null;
+}) {
+  if (status === 'LEFT') {
+    return <div className="status-line">You are out of this game — watching the rest.</div>;
+  }
+
+  return (
+    <div className="stack" style={{ alignItems: 'center', gap: 10 }}>
+      {placement ? (
+        <div className="row">
+          <span className="placement placement-lg" style={{ background: placementColor(placement) }}>
+            {placement}
+          </span>
+          <strong>You connected {ordinal(placement)}</strong>
+        </div>
+      ) : null}
+      <div className="status-line">Sit back — the rest are still looking for each other.</div>
+    </div>
+  );
+}
+
+function RevealSummary({
+  revealed,
+  players,
+  formed,
+}: {
+  revealed: Map<string, { word: string; matched: boolean }>;
+  players: PlayerView[];
+  formed: { placement: number; word: string; memberIds: string[] }[];
+}) {
+  const nameOf = (id: string) => {
+    const player = players.find((candidate) => candidate.id === id);
+    return player?.isYou ? 'you' : (player?.username ?? 'player');
+  };
+
+  return (
+    <div className="stack" style={{ gap: 10, alignItems: 'center' }}>
+      {formed.length > 0 ? (
+        <div className="row row-wrap" style={{ justifyContent: 'center' }}>
+          {formed.map((connection) => (
+            <span
+              className="pill"
+              key={connection.placement}
+              style={{
+                borderColor: placementColor(connection.placement),
+                color: placementColor(connection.placement),
+              }}
+            >
+              #{connection.placement} “{connection.word}” — {connection.memberIds.map(nameOf).join(', ')}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="status-line">No connections this round. Keep going.</div>
+      )}
+
+      {/* The circle hides word bubbles on narrow screens, so list them here. */}
+      <div className="row row-wrap" style={{ justifyContent: 'center', gap: 6 }}>
+        {[...revealed.entries()].map(([userId, entry]) => (
+          <span
+            className="pill"
+            key={userId}
+            style={entry.matched ? { color: 'var(--match)' } : undefined}
+          >
+            {nameOf(userId)}: {entry.word}
+          </span>
+        ))}
       </div>
     </div>
   );
 }
 
-function ResultCard({
+function Result({
   ended,
-  youArePlayer1,
-  onRematch,
-  rematching,
+  players,
+  redirectIn,
 }: {
   ended: GameEndedPayload;
-  youArePlayer1: boolean;
-  onRematch: () => void;
-  rematching: boolean;
+  players: PlayerView[];
+  redirectIn: number;
 }) {
   const matched = ended.outcome === 'MATCHED' && ended.finalScore !== null;
-  const score = ended.finalScore ?? 0;
+  const nameOf = (id: string) => {
+    const player = players.find((candidate) => candidate.id === id);
+    return player?.isYou ? 'you' : (player?.username ?? 'player');
+  };
 
-  // Count the score up — it makes a small number feel like a result.
-  const [shown, setShown] = useState(matched ? 1 : 0);
-
-  useEffect(() => {
-    if (!matched || score <= 1) {
-      setShown(score);
-      return;
-    }
-
-    let current = 1;
-    setShown(1);
-    const timer = window.setInterval(() => {
-      current += 1;
-      setShown(current);
-      if (current >= score) window.clearInterval(timer);
-    }, 90);
-
-    return () => window.clearInterval(timer);
-  }, [matched, score]);
-
-  const finalRound = ended.rounds[ended.rounds.length - 1];
-  const sharedWord = matched && finalRound ? (youArePlayer1 ? finalRound.player1Word : finalRound.player2Word) : null;
+  const wildcard = ended.wildcardId ? nameOf(ended.wildcardId) : null;
 
   return (
-    <section className="card result">
-      <div className={`score-orb${matched ? '' : ' is-unscored'}`}>
-        <span className="score-number">{matched ? shown : '—'}</span>
-        <span className="score-caption">{matched ? 'rounds' : outcomeLabel(ended.outcome)}</span>
-      </div>
+    <div className="result" style={{ padding: '10px 0 0' }}>
+      {ended.perfectCircle ? (
+        <span className="perfect-banner">✦ Perfect circle — nobody left behind</span>
+      ) : null}
 
-      {matched ? (
-        <>
-          <h1 className="result-headline">{scoreHeadline(score)}</h1>
-          <p className="result-sub">
-            You both said <strong style={{ color: 'var(--match)' }}>{sharedWord}</strong>. That score
-            belongs to the two of you — it is on the leaderboard now.
-          </p>
-        </>
-      ) : (
-        <>
-          <h1 className="result-headline">
-            {ended.outcome === 'UNMATCHED'
-              ? 'You ran out of rounds'
-              : ended.outcome === 'ABANDONED'
-                ? 'Game abandoned'
-                : 'Game ended early'}
-          </h1>
-          <p className="result-sub">
-            {ended.reason ??
-              'No match this time, so there is no score — only a matched game counts.'}
-          </p>
-        </>
-      )}
+      <h1 className="result-headline">
+        {matched
+          ? `The circle closed in ${ended.finalScore} ${ended.finalScore === 1 ? 'round' : 'rounds'}`
+          : ended.outcome === 'UNMATCHED'
+            ? 'You ran out of rounds'
+            : ended.outcome === 'ABANDONED'
+              ? 'Game abandoned'
+              : 'Game ended early'}
+      </h1>
+
+      {ended.reason ? <p className="result-sub">{ended.reason}</p> : null}
+
+      {ended.connections.length > 0 ? (
+        <div className="podium">
+          {ended.connections.map((connection) => (
+            <div
+              className="podium-row"
+              key={connection.placement}
+              style={{ borderLeftColor: placementColor(connection.placement) }}
+            >
+              <span
+                className="placement placement-lg"
+                style={{ background: placementColor(connection.placement) }}
+              >
+                {connection.placement}
+              </span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div
+                  className="podium-word"
+                  style={{ color: placementColor(connection.placement) }}
+                >
+                  {connection.word}
+                </div>
+                <div className="small muted">{connection.memberIds.map(nameOf).join(' · ')}</div>
+              </div>
+              <span className="pill">round {connection.roundNumber}</span>
+            </div>
+          ))}
+
+          {wildcard ? (
+            <div className="podium-row" style={{ borderLeftColor: 'var(--warn)' }}>
+              <span className="placement placement-lg" style={{ background: 'var(--warn)' }}>
+                ★
+              </span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="podium-word" style={{ color: 'var(--warn)' }}>
+                  Wildcard
+                </div>
+                <div className="small muted">
+                  {wildcard} — nobody else was in that head
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="row row-wrap" style={{ justifyContent: 'center' }}>
-        <button className="btn btn-primary btn-lg" onClick={onRematch} disabled={rematching}>
-          {rematching ? 'Starting…' : 'Play again'}
-        </button>
-        <Link className="btn btn-lg" to="/">
-          Dashboard
+        <Link className="btn btn-primary btn-lg" to="/">
+          Back to dashboard
         </Link>
       </div>
-    </section>
+      <p className="redirect-note">
+        The room is closed. Returning you home in {redirectIn}s.
+      </p>
+    </div>
   );
 }

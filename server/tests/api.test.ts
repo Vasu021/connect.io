@@ -245,79 +245,238 @@ describe('friendships', () => {
   });
 });
 
-describe('games', () => {
-  it('refuses to create a game with a stranger', async () => {
-    const a = await client.register('strA');
-    const b = await client.register('strB');
+describe('rooms', () => {
+  it('creates a room with the host already in it', async () => {
+    const host = await client.register('roomHost');
+    const result = await client.post('/api/rooms', { maxPlayers: 8 }, host.cookie);
 
-    const result = await client.post('/api/games', { friendId: b.id }, a.cookie);
-    expect(result.status).toBe(403);
+    expect(result.status).toBe(201);
+    const room = result.body.room as { code: string; members: unknown[]; youAreHost: boolean };
+    expect(room.code).toMatch(/^[A-Z0-9]{6}$/);
+    expect(room.members).toHaveLength(1);
+    expect(room.youAreHost).toBe(true);
   });
 
-  it('creates a game between friends and shows it to both players', async () => {
-    const a = await client.register('gameA');
-    const b = await client.register('gameB');
-    await client.befriend(a, b);
+  it('lets a stranger join by code — friendship is not required to play', async () => {
+    const host = await client.register('openHost');
+    const stranger = await client.register('stranger');
+    const room = await client.createRoom(host);
 
-    const created = await client.post('/api/games', { friendId: b.id }, a.cookie);
-    expect(created.status).toBe(201);
-
-    // The invited player must be able to find the game without being handed a URL.
-    const forB = await client.get('/api/games/active', b.cookie);
-    const games = forB.body.games as { id: string; opponent: { username: string } }[];
-    expect(games).toHaveLength(1);
-    expect(games[0]?.opponent.username).toBe('gameA');
+    const joined = await client.post('/api/rooms/join', { code: room.code }, stranger.cookie);
+    expect(joined.status).toBe(200);
+    expect((joined.body.room as { members: unknown[] }).members).toHaveLength(2);
   });
 
-  it('reuses an open room instead of stacking duplicate invites', async () => {
-    const a = await client.register('dupA');
-    const b = await client.register('dupB');
-    await client.befriend(a, b);
+  it('requires the password when joining by code', async () => {
+    const host = await client.register('lockHost');
+    const outsider = await client.register('outsider');
+    const room = await client.createRoom(host, { password: 'letmein' });
 
-    const first = await client.post('/api/games', { friendId: b.id }, a.cookie);
-    const second = await client.post('/api/games', { friendId: b.id }, a.cookie);
+    const noPassword = await client.post('/api/rooms/join', { code: room.code }, outsider.cookie);
+    expect(noPassword.status).toBe(404);
 
-    expect(second.body.reused).toBe(true);
-    expect((second.body.game as { id: string }).id).toBe((first.body.game as { id: string }).id);
+    const wrongPassword = await client.post(
+      '/api/rooms/join',
+      { code: room.code, password: 'nope' },
+      outsider.cookie,
+    );
+    // A wrong password is indistinguishable from an unknown code, so the
+    // endpoint cannot be used to discover which rooms exist.
+    expect(wrongPassword.status).toBe(404);
+    expect(wrongPassword.body.message).toBe(noPassword.body.message);
+
+    const correct = await client.post(
+      '/api/rooms/join',
+      { code: room.code, password: 'letmein' },
+      outsider.cookie,
+    );
+    expect(correct.status).toBe(200);
   });
 
-  it('resolves a room code only for the players in that room', async () => {
-    const a = await client.register('codeA');
-    const b = await client.register('codeB');
-    const outsider = await client.register('codeC');
-    await client.befriend(a, b);
+  it('lets an invited player in without the password', async () => {
+    const host = await client.register('inviteHost');
+    const guest = await client.register('inviteGuest');
+    const room = await client.createRoom(host, { password: 'letmein' });
 
-    const created = await client.post('/api/games', { friendId: b.id }, a.cookie);
-    const roomCode = (created.body.game as { roomCode: string }).roomCode;
+    await client.post(`/api/rooms/${room.id}/invite`, { userId: guest.id }, host.cookie);
 
-    expect((await client.post('/api/games/join', { roomCode }, b.cookie)).status).toBe(200);
-    // An outsider gets "not found" rather than "forbidden" — the room's
-    // existence is itself not disclosed.
-    const blocked = await client.post('/api/games/join', { roomCode }, outsider.cookie);
-    expect(blocked.status).toBe(404);
+    const joined = await client.post('/api/rooms/join', { code: room.code }, guest.cookie);
+    expect(joined.status).toBe(200);
   });
 
-  it('hides a game from players who are not in it', async () => {
-    const a = await client.register('privA');
-    const b = await client.register('privB');
-    const outsider = await client.register('privC');
+  it('shows an invite on the invited player\'s dashboard', async () => {
+    const host = await client.register('notifyHost');
+    const guest = await client.register('notifyGuest');
+    const room = await client.createRoom(host);
+
+    await client.post(`/api/rooms/${room.id}/invite`, { userId: guest.id }, host.cookie);
+
+    const invites = await client.get('/api/rooms/invites', guest.cookie);
+    const list = invites.body.invites as { room: { code: string }; from: { username: string } }[];
+    expect(list).toHaveLength(1);
+    expect(list[0]?.room.code).toBe(room.code);
+    expect(list[0]?.from.username).toBe('notifyHost');
+  });
+
+  it('refuses to let a non-member see the room', async () => {
+    const host = await client.register('privHost');
+    const outsider = await client.register('privOutsider');
+    const room = await client.createRoom(host);
+
+    const result = await client.get(`/api/rooms/${room.id}`, outsider.cookie);
+    expect(result.status).toBe(404);
+  });
+
+  it('enforces the room capacity', async () => {
+    const host = await client.register('capHost');
+    const guest = await client.register('capGuest');
+    const extra = await client.register('capExtra');
+    const room = await client.createRoom(host, { maxPlayers: 2 });
+
+    expect((await client.post('/api/rooms/join', { code: room.code }, guest.cookie)).status).toBe(200);
+    const full = await client.post('/api/rooms/join', { code: room.code }, extra.cookie);
+    expect(full.status).toBe(409);
+  });
+
+  it('only lets the host start, and only with enough players', async () => {
+    const host = await client.register('startHost');
+    const guest = await client.register('startGuest');
+    const room = await client.createRoom(host);
+
+    // One player is not a game.
+    const tooFew = await client.post(`/api/rooms/${room.id}/start`, undefined, host.cookie);
+    expect(tooFew.status).toBe(400);
+
+    await client.post('/api/rooms/join', { code: room.code }, guest.cookie);
+
+    const notHost = await client.post(`/api/rooms/${room.id}/start`, undefined, guest.cookie);
+    expect(notHost.status).toBe(403);
+
+    const started = await client.post(`/api/rooms/${room.id}/start`, undefined, host.cookie);
+    expect(started.status).toBe(200);
+    expect(started.body.gameId).toBeDefined();
+  });
+
+  it('passes the host on when the host leaves, and closes an empty room', async () => {
+    const host = await client.register('leaveHost');
+    const guest = await client.register('leaveGuest');
+    const room = await client.createRoom(host);
+    await client.post('/api/rooms/join', { code: room.code }, guest.cookie);
+
+    await client.post(`/api/rooms/${room.id}/leave`, undefined, host.cookie);
+
+    const view = await client.get(`/api/rooms/${room.id}`, guest.cookie);
+    expect((view.body.room as { youAreHost: boolean }).youAreHost).toBe(true);
+
+    await client.post(`/api/rooms/${room.id}/leave`, undefined, guest.cookie);
+    // Last one out closes the room, so the code stops working.
+    const rejoin = await client.post('/api/rooms/join', { code: room.code }, guest.cookie);
+    expect(rejoin.status).toBe(404);
+  });
+
+  it('lets the host remove a player but not themselves', async () => {
+    const host = await client.register('kickHost');
+    const guest = await client.register('kickGuest');
+    const room = await client.createRoom(host);
+    await client.post('/api/rooms/join', { code: room.code }, guest.cookie);
+
+    expect(
+      (await client.del(`/api/rooms/${room.id}/members/${host.id}`, host.cookie)).status,
+    ).toBe(400);
+    expect(
+      (await client.del(`/api/rooms/${room.id}/members/${guest.id}`, guest.cookie)).status,
+    ).toBe(403);
+    expect(
+      (await client.del(`/api/rooms/${room.id}/members/${guest.id}`, host.cookie)).status,
+    ).toBe(200);
+
+    const view = await client.get(`/api/rooms/${room.id}`, host.cookie);
+    expect((view.body.room as { members: unknown[] }).members).toHaveLength(1);
+  });
+
+  it('lets only the host change the round length', async () => {
+    const host = await client.register('timerHost');
+    const guest = await client.register('timerGuest');
+    const room = await client.createRoom(host);
+    await client.post('/api/rooms/join', { code: room.code }, guest.cookie);
+
+    const byGuest = await client.post(
+      `/api/rooms/${room.id}/settings`,
+      { roundDurationMs: 30_000 },
+      guest.cookie,
+    );
+    expect(byGuest.status).toBe(403);
+
+    const byHost = await client.post(
+      `/api/rooms/${room.id}/settings`,
+      { roundDurationMs: 30_000 },
+      host.cookie,
+    );
+    expect(byHost.status).toBe(200);
+    expect((byHost.body.room as { roundDurationMs: number }).roundDurationMs).toBe(30_000);
+
+    // Everyone in the lobby sees the new length.
+    const forGuest = await client.get(`/api/rooms/${room.id}`, guest.cookie);
+    expect((forGuest.body.room as { roundDurationMs: number }).roundDurationMs).toBe(30_000);
+  });
+
+  it('rejects a round length outside the allowed range', async () => {
+    const host = await client.register('rangeHost');
+    const room = await client.createRoom(host);
+
+    expect(
+      (await client.post(`/api/rooms/${room.id}/settings`, { roundDurationMs: 500 }, host.cookie))
+        .status,
+    ).toBe(400);
+    expect(
+      (await client.post(
+        `/api/rooms/${room.id}/settings`,
+        { roundDurationMs: 999_999 },
+        host.cookie,
+      )).status,
+    ).toBe(400);
+  });
+
+  it('refuses to shrink a room below the people already in it', async () => {
+    const host = await client.register('shrinkHost');
+    const guest = await client.register('shrinkGuest');
+    const extra = await client.register('shrinkExtra');
+    const room = await client.createRoom(host, { maxPlayers: 8 });
+    await client.post('/api/rooms/join', { code: room.code }, guest.cookie);
+    await client.post('/api/rooms/join', { code: room.code }, extra.cookie);
+
+    const result = await client.post(
+      `/api/rooms/${room.id}/settings`,
+      { maxPlayers: 2 },
+      host.cookie,
+    );
+    expect(result.status).toBe(409);
+  });
+
+  it('creates a ready-to-go two-player room from the friends list', async () => {
+    const a = await client.register('quickA');
+    const b = await client.register('quickB');
     await client.befriend(a, b);
 
-    const created = await client.post('/api/games', { friendId: b.id }, a.cookie);
-    const gameId = (created.body.game as { id: string }).id;
+    const result = await client.post('/api/rooms/quick', { friendId: b.id }, a.cookie);
+    expect(result.status).toBe(201);
+    expect((result.body.room as { maxPlayers: number }).maxPlayers).toBe(2);
 
-    expect((await client.get(`/api/games/${gameId}`, outsider.cookie)).status).toBe(403);
+    const invites = await client.get('/api/rooms/invites', b.cookie);
+    expect((invites.body.invites as unknown[]).length).toBe(1);
   });
 
   it('validates ids instead of trusting the path', async () => {
     const a = await client.register('valA');
     expect((await client.get('/api/games/not-a-uuid', a.cookie)).status).toBe(400);
+    expect((await client.get('/api/rooms/not-a-uuid', a.cookie)).status).toBe(400);
   });
 
   it('starts an empty leaderboard', async () => {
     const a = await client.register('lbA');
     const result = await client.get('/api/games/leaderboard', a.cookie);
     expect(result.body.leaderboard).toEqual([]);
+    expect(result.body.availableSizes).toEqual([]);
   });
 });
 

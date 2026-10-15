@@ -30,8 +30,12 @@ function limiter(
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
-/** Broad ceiling for the whole API. */
-export const apiLimiter = limiter(15 * MINUTE, 600, 'Too many requests — slow down a moment.');
+/**
+ * Broad ceiling for the whole API. Generous because this is a realtime app and
+ * several players often share one address (a household, an office, a campus) —
+ * the sensitive endpoints below carry their own far tighter limits.
+ */
+export const apiLimiter = limiter(15 * MINUTE, 2000, 'Too many requests — slow down a moment.');
 
 /** Tight: login and register are the brute-force surface. */
 export const loginLimiter = limiter(
@@ -45,6 +49,15 @@ export const registerLimiter = limiter(HOUR, 5, 'Too many accounts created. Try 
 
 export const friendRequestLimiter = limiter(HOUR, 40, 'You are sending friend requests too fast.');
 
-export const createGameLimiter = limiter(HOUR, 60, 'Too many games started. Take a breath.');
+export const createGameLimiter = limiter(HOUR, 60, 'Too many rooms created. Take a breath.');
+
+export const inviteLimiter = limiter(HOUR, 120, 'You are sending invites too fast.');
+
+export const joinLimiter = limiter(
+  15 * MINUTE,
+  40,
+  'Too many join attempts. Try again in a few minutes.',
+  { countFailuresOnly: true },
+);
 
 export const searchLimiter = limiter(MINUTE, 60, 'Too many searches — slow down.');

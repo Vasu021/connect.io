@@ -7,7 +7,9 @@ beforeEach(async () => {
   // Round and Game cascade from User, but truncating explicitly keeps the order
   // obvious and the reset fast.
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "Round", "Game", "Friendship", "FriendRequest", "User" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "Submission", "Connection", "Round", "GamePlayer", "Game", ' +
+      '"RoomInvite", "RoomMember", "Room", "Friendship", "FriendRequest", "User" ' +
+      'RESTART IDENTITY CASCADE',
   );
   shutdownEngine();
   presence.reset();

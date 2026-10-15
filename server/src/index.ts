@@ -3,7 +3,8 @@ import { Server } from 'socket.io';
 import { createApp } from './app.js';
 import { disconnectDb } from './db.js';
 import { env } from './env.js';
-import { restoreLiveGames, shutdownEngine, sweepStaleInvites } from './game/engine.js';
+import { restoreLiveGames, shutdownEngine } from './game/engine.js';
+import { sweepStaleRooms } from './room/rooms.js';
 import { registerSocketServer } from './realtime/sockets.js';
 
 const app = createApp();
@@ -30,9 +31,9 @@ async function start() {
   const restored = await restoreLiveGames();
   if (restored > 0) console.log(`Restored ${restored} in-progress game(s).`);
 
-  await sweepStaleInvites().catch((err) => console.error('invite sweep failed:', err));
+  await sweepStaleRooms().catch((err) => console.error('room sweep failed:', err));
   sweepTimer = setInterval(() => {
-    void sweepStaleInvites().catch((err) => console.error('invite sweep failed:', err));
+    void sweepStaleRooms().catch((err) => console.error('room sweep failed:', err));
   }, SWEEP_INTERVAL_MS);
 
   httpServer.listen(env.PORT, () => {

@@ -2,7 +2,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/db.js';
 import { restoreLiveGames, shutdownEngine, viewFor } from '../src/game/engine.js';
-import type { GameStateView, RoundView } from '../src/game/types.js';
+import type { ConnectionView, GameStateView, RoundView } from '../src/game/types.js';
 import {
   api,
   connectSocket,
@@ -36,351 +36,532 @@ function track(socket: ClientSocket): ClientSocket {
   return socket;
 }
 
-type Match = {
-  a: TestUser;
-  b: TestUser;
+type Table = {
+  users: TestUser[];
+  host: TestUser;
+  roomId: string;
+  code: string;
   gameId: string;
-  roomCode: string;
-  socketA: ClientSocket;
-  socketB: ClientSocket;
+  sockets: ClientSocket[];
 };
 
 let seq = 0;
 
-/** Two friends, a created game, and both players connected but not yet joined. */
-async function setupPair(): Promise<Match> {
+/** Seats `count` players in a room and plays through to round one. */
+async function seat(count: number, options: { password?: string } = {}): Promise<Table> {
   seq += 1;
-  const a = await client.register(`pa${seq}`);
-  const b = await client.register(`pb${seq}`);
-  await client.befriend(a, b);
+  const users: TestUser[] = [];
+  for (let i = 0; i < count; i += 1) {
+    users.push(await client.register(`p${seq}x${i}`));
+  }
 
-  const created = await client.post('/api/games', { friendId: b.id }, a.cookie);
-  const game = created.body.game as { id: string; roomCode: string };
+  const host = users[0] as TestUser;
+  const room = await client.createRoom(host, { maxPlayers: count, ...options });
 
-  const socketA = track(connectSocket(server, a));
-  const socketB = track(connectSocket(server, b));
-  await Promise.all([waitFor(socketA, 'session:ready'), waitFor(socketB, 'session:ready')]);
+  for (const guest of users.slice(1)) {
+    const joined = await client.post(
+      '/api/rooms/join',
+      { code: room.code, ...(options.password ? { password: options.password } : {}) },
+      guest.cookie,
+    );
+    if (joined.status !== 200) throw new Error(`join failed: ${joined.status}`);
+  }
 
-  return { a, b, gameId: game.id, roomCode: game.roomCode, socketA, socketB };
-}
+  const sockets = users.map((user) => track(connectSocket(server, user)));
+  await Promise.all(sockets.map((socket) => waitFor(socket, 'session:ready')));
 
-/** Joins both players and resolves once round 1 is live. */
-async function startMatch(match: Match): Promise<void> {
-  const started = waitFor(match.socketA, 'game:started');
-  const roundOne = waitFor<{ roundNumber: number }>(match.socketA, 'round:started');
+  const gameId = await client.startRoom(host, room.id);
 
-  match.socketA.emit('game:join', { gameId: match.gameId });
-  await sleep(120);
-  match.socketB.emit('game:join', { gameId: match.gameId });
-
-  await started;
-  const round = await roundOne;
+  const firstRound = waitFor<{ roundNumber: number }>(sockets[0] as ClientSocket, 'round:started');
+  for (const socket of sockets) socket.emit('game:join', { gameId });
+  const round = await firstRound;
   expect(round.roundNumber).toBe(1);
+
+  return { users, host, roomId: room.id, code: room.code, gameId, sockets };
 }
 
-type RevealPayload = { round: RoundView; rounds: RoundView[]; isFinal: boolean };
-type EndedPayload = { outcome: string; finalScore: number | null; reason: string | null };
+/** Submits one word per seat index; `null` means that player stays silent. */
+function submitAll(table: Table, words: (string | null)[]): void {
+  words.forEach((word, index) => {
+    if (word === null) return;
+    table.sockets[index]?.emit('game:submit', { gameId: table.gameId, word });
+  });
+}
 
-describe('a full match', () => {
-  it('starts only once both players are in the room', async () => {
-    const match = await setupPair();
+type RevealPayload = {
+  round: RoundView;
+  playedWords: string[];
+  remaining: number;
+  isFinal: boolean;
+};
+type EndedPayload = {
+  outcome: string;
+  finalScore: number | null;
+  perfectCircle: boolean;
+  connections: ConnectionView[];
+  wildcardId: string | null;
+  reason: string | null;
+};
 
-    const state = waitFor<GameStateView>(match.socketA, 'game:state');
-    match.socketA.emit('game:join', { gameId: match.gameId });
-    const first = await state;
+const reveal = (table: Table, index = 0) =>
+  waitFor<RevealPayload>(table.sockets[index] as ClientSocket, 'round:revealed');
+const ended = (table: Table, index = 0, timeout = 15_000) =>
+  waitFor<EndedPayload>(table.sockets[index] as ClientSocket, 'game:ended', timeout);
+const nextRound = (table: Table, index = 0) =>
+  waitFor<{ roundNumber: number }>(table.sockets[index] as ClientSocket, 'round:started');
 
-    // One player present: still waiting, no round running.
-    expect(first.status).toBe('WAITING');
-    expect(first.roundDeadline).toBeNull();
+describe('connections', () => {
+  it('forms several groups in one round, numbered in order', async () => {
+    const table = await seat(8);
+    const watcher = reveal(table);
 
-    const started = waitFor(match.socketA, 'game:started');
-    match.socketB.emit('game:join', { gameId: match.gameId });
-    await started;
+    // ocean: seats 0,3,4   signal: seats 1,2   alone: 5,6,7 all different
+    submitAll(table, ['ocean', 'signal', 'signal', 'ocean', 'ocean', 'lamp', 'pine', 'drum']);
+
+    const payload = await watcher;
+    expect(payload.round.formed).toHaveLength(2);
+
+    const [first, second] = payload.round.formed;
+    // Deterministic placement: normalised ascending, so "ocean" precedes "signal".
+    expect(first?.placement).toBe(1);
+    expect(first?.word.toLowerCase()).toBe('ocean');
+    expect(first?.memberIds).toHaveLength(3);
+    expect(second?.placement).toBe(2);
+    expect(second?.memberIds).toHaveLength(2);
+
+    expect(payload.remaining).toBe(3);
   });
 
-  it('ends on a first-round match and scores it 1', async () => {
-    const match = await setupPair();
-    await startMatch(match);
+  it('connects a group of five as a single connection', async () => {
+    const table = await seat(6);
+    const watcher = reveal(table);
+    submitAll(table, ['ocean', 'ocean', 'ocean', 'ocean', 'ocean', 'solo']);
 
-    const revealed = waitFor<RevealPayload>(match.socketA, 'round:revealed');
-    const ended = waitFor<EndedPayload>(match.socketA, 'game:ended');
+    const payload = await watcher;
+    expect(payload.round.formed).toHaveLength(1);
+    expect(payload.round.formed[0]?.memberIds).toHaveLength(5);
+    expect(payload.remaining).toBe(1);
+  });
 
-    match.socketA.emit('game:submit', { gameId: match.gameId, word: 'fifa' });
-    match.socketB.emit('game:submit', { gameId: match.gameId, word: 'FIFA ' });
+  it('keeps unconnected players in the circle for the next round', async () => {
+    const table = await seat(4);
+    const first = reveal(table);
+    submitAll(table, ['ocean', 'ocean', 'north', 'south']);
+    expect((await first).remaining).toBe(2);
 
-    const reveal = await revealed;
-    expect(reveal.round.matched).toBe(true);
+    const second = await nextRound(table, 2);
+    expect(second.roundNumber).toBe(2);
+  });
+});
 
-    const result = await ended;
+describe('the no-repeat rule', () => {
+  it('rejects a word anyone has already played', async () => {
+    const table = await seat(4);
+
+    const first = reveal(table);
+    submitAll(table, ['ocean', 'north', 'south', 'east']);
+    await first;
+    await nextRound(table);
+
+    const error = waitFor<{ message: string }>(table.sockets[0] as ClientSocket, 'game:error');
+    table.sockets[0]?.emit('game:submit', { gameId: table.gameId, word: 'OCEAN' });
+    expect((await error).message).toMatch(/already been played/i);
+  });
+
+  it('does not consume the round when a repeat is rejected', async () => {
+    const table = await seat(4);
+
+    const first = reveal(table);
+    submitAll(table, ['ocean', 'north', 'south', 'east']);
+    await first;
+    await nextRound(table);
+
+    table.sockets[0]?.emit('game:submit', { gameId: table.gameId, word: 'north' });
+    await sleep(120);
+
+    // The rejected attempt must leave the player free to try again.
+    const accepted = waitFor(table.sockets[0] as ClientSocket, 'game:submitted');
+    table.sockets[0]?.emit('game:submit', { gameId: table.gameId, word: 'harbour' });
+    await accepted;
+
+    const state = viewFor(table.gameId, (table.users[0] as TestUser).id);
+    expect(state?.youWord).toBe('harbour');
+  });
+
+  it('publishes the played words, because everyone saw them', async () => {
+    const table = await seat(4);
+    const first = reveal(table);
+    submitAll(table, ['ocean', 'north', 'south', 'east']);
+
+    const payload = await first;
+    expect([...payload.playedWords].sort()).toEqual(['east', 'north', 'ocean', 'south']);
+  });
+});
+
+describe('closing the circle', () => {
+  it('ends with a Wildcard when one player is left alone', async () => {
+    const table = await seat(5);
+
+    const first = reveal(table);
+    submitAll(table, ['ocean', 'ocean', 'north', 'south', 'east']);
+    await first;
+    await nextRound(table, 2);
+
+    const finish = ended(table);
+    submitAll(table, [null, null, 'harbour', 'harbour', 'lonely']);
+
+    const result = await finish;
     expect(result.outcome).toBe('MATCHED');
-    expect(result.finalScore).toBe(1);
+    expect(result.finalScore).toBe(2);
+    expect(result.perfectCircle).toBe(false);
+    expect(result.wildcardId).toBe((table.users[4] as TestUser).id);
+    expect(result.connections).toHaveLength(2);
+  });
 
-    const row = await prisma.game.findUniqueOrThrow({ where: { id: match.gameId } });
-    expect(row.status).toBe('COMPLETED');
+  it('is a Perfect Circle when nobody is left over', async () => {
+    const table = await seat(4);
+
+    const finish = ended(table);
+    submitAll(table, ['ocean', 'ocean', 'signal', 'signal']);
+
+    const result = await finish;
+    expect(result.outcome).toBe('MATCHED');
+    expect(result.perfectCircle).toBe(true);
+    expect(result.wildcardId).toBeNull();
+    expect(result.connections.map((c) => c.placement)).toEqual([1, 2]);
+
+    const row = await prisma.game.findUniqueOrThrow({ where: { id: table.gameId } });
+    expect(row.perfectCircle).toBe(true);
     expect(row.finalScore).toBe(1);
   });
 
-  it('scores the round the pair actually converged on', async () => {
-    const match = await setupPair();
-    await startMatch(match);
+  it('plays exactly like the old two-player game at two players', async () => {
+    const table = await seat(2);
 
-    // Round 1: no match.
-    const firstReveal = waitFor<RevealPayload>(match.socketA, 'round:revealed');
-    match.socketA.emit('game:submit', { gameId: match.gameId, word: 'messi' });
-    match.socketB.emit('game:submit', { gameId: match.gameId, word: 'ronaldo' });
-    expect((await firstReveal).round.matched).toBe(false);
+    const first = reveal(table);
+    submitAll(table, ['messi', 'ronaldo']);
+    expect((await first).round.formed).toHaveLength(0);
 
-    // Round 2: they land on the same word.
-    const roundTwo = waitFor<{ roundNumber: number }>(match.socketA, 'round:started');
-    expect((await roundTwo).roundNumber).toBe(2);
+    await nextRound(table);
+    const finish = ended(table);
+    submitAll(table, ['fifa', 'FIFA']);
 
-    const ended = waitFor<EndedPayload>(match.socketA, 'game:ended');
-    match.socketA.emit('game:submit', { gameId: match.gameId, word: 'fifa' });
-    match.socketB.emit('game:submit', { gameId: match.gameId, word: 'fifa' });
-
-    const result = await ended;
+    const result = await finish;
     expect(result.outcome).toBe('MATCHED');
     expect(result.finalScore).toBe(2);
+    expect(result.perfectCircle).toBe(true);
   });
 
-  it('resolves a round on the timer when one player says nothing', async () => {
-    const match = await setupPair();
-    await startMatch(match);
+  it('ends UNMATCHED with no score when the round cap is reached', async () => {
+    const table = await seat(3);
+    const finish = ended(table, 0, 25_000);
 
-    const revealed = waitFor<RevealPayload>(match.socketA, 'round:revealed');
-    match.socketA.emit('game:submit', { gameId: match.gameId, word: 'alone' });
+    // MAX_ROUNDS is 5 under test. Everyone keeps playing — they just never land
+    // on the same word. (Staying silent instead would get them removed as idle,
+    // which is a different ending.)
+    const script = [
+      ['north', 'south', 'east'],
+      ['amber', 'cobalt', 'indigo'],
+      ['maple', 'cedar', 'willow'],
+      ['copper', 'silver', 'bronze'],
+      ['harbour', 'meadow', 'canyon'],
+    ];
 
-    const reveal = await revealed;
-    expect(reveal.round.player1Word).toBe('alone');
-    expect(reveal.round.player2Word).toBeNull();
-    expect(reveal.round.matched).toBe(false);
+    for (let round = 1; round <= 5; round += 1) {
+      // Both listeners go on before submitting: the reveal pause is short
+      // enough that round N+1 can start before a later subscribe lands.
+      const watcher = reveal(table);
+      const next = round < 5 ? nextRound(table) : null;
+      submitAll(table, script[round - 1] as string[]);
+      await watcher;
+      if (next) await next;
+    }
 
-    // The game carries on into the next round.
-    const next = await waitFor<{ roundNumber: number }>(match.socketA, 'round:started');
-    expect(next.roundNumber).toBe(2);
-  });
-
-  it('ends UNMATCHED with no score once the round cap is reached', async () => {
-    const match = await setupPair();
-    await startMatch(match);
-
-    // MAX_ROUNDS is 3 under test; nobody submits anything.
-    const result = await waitFor<EndedPayload>(match.socketA, 'game:ended', 12_000);
+    const result = await finish;
     expect(result.outcome).toBe('UNMATCHED');
     expect(result.finalScore).toBeNull();
 
-    const row = await prisma.game.findUniqueOrThrow({ where: { id: match.gameId } });
-    expect(row.currentRound).toBe(3);
+    const row = await prisma.game.findUniqueOrThrow({ where: { id: table.gameId } });
+    expect(row.currentRound).toBe(5);
     expect(row.finalScore).toBeNull();
+  });
+
+  it('closes the room when the game ends', async () => {
+    const table = await seat(2);
+    const finish = ended(table);
+    submitAll(table, ['ocean', 'ocean']);
+    await finish;
+
+    const room = await prisma.room.findUniqueOrThrow({ where: { id: table.roomId } });
+    expect(room.status).toBe('CLOSED');
+    // The code stops working: the room is gone, not merely finished.
+    const rejoin = await client.post('/api/rooms/join', { code: table.code }, table.host.cookie);
+    expect(rejoin.status).toBe(404);
   });
 });
 
 describe('fair play', () => {
-  it("never reveals the opponent's word before the reveal", async () => {
-    const match = await setupPair();
-    await startMatch(match);
+  it("never leaks any other player's pending word", async () => {
+    const table = await seat(8);
 
-    // Several state broadcasts may already be in flight, so wait for the one
-    // that reflects A's submission rather than simply the next one.
-    const stateForB = waitForWhere<GameStateView>(
-      match.socketB,
+    const watcher = waitForWhere<GameStateView>(
+      table.sockets[7] as ClientSocket,
       'game:state',
-      (state) => state.opponentSubmitted,
+      (state) => state.players.filter((p) => p.hasSubmitted).length >= 7,
     );
-    match.socketA.emit('game:submit', { gameId: match.gameId, word: 'secret' });
-    const view = await stateForB;
 
-    // B must learn only that A has locked in, never what.
-    expect(view.opponentSubmitted).toBe(true);
+    const secrets = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf'];
+    secrets.forEach((word, index) => {
+      table.sockets[index]?.emit('game:submit', { gameId: table.gameId, word });
+    });
+
+    const view = await watcher;
+    const serialised = JSON.stringify(view);
+
+    // Seven other players have locked in. The viewer may know that, and
+    // nothing more.
+    for (const secret of secrets) {
+      expect(serialised).not.toContain(secret);
+    }
     expect(view.youWord).toBeNull();
-    expect(JSON.stringify(view)).not.toContain('secret');
+    expect(view.players.filter((p) => p.hasSubmitted)).toHaveLength(7);
+  });
+
+  it('stops a connected player from submitting again', async () => {
+    const table = await seat(4);
+
+    const first = reveal(table);
+    submitAll(table, ['ocean', 'ocean', 'north', 'south']);
+    await first;
+    await nextRound(table, 2);
+
+    const error = waitFor<{ message: string }>(table.sockets[0] as ClientSocket, 'game:error');
+    table.sockets[0]?.emit('game:submit', { gameId: table.gameId, word: 'anything' });
+    expect((await error).message).toMatch(/already connected/i);
   });
 
   it('rejects a second submission in the same round', async () => {
-    const match = await setupPair();
-    await startMatch(match);
+    const table = await seat(4);
+    table.sockets[0]?.emit('game:submit', { gameId: table.gameId, word: 'first' });
 
-    match.socketA.emit('game:submit', { gameId: match.gameId, word: 'first' });
-    const error = waitFor<{ message: string }>(match.socketA, 'game:error');
-    match.socketA.emit('game:submit', { gameId: match.gameId, word: 'second' });
-
+    const error = waitFor<{ message: string }>(table.sockets[0] as ClientSocket, 'game:error');
+    table.sockets[0]?.emit('game:submit', { gameId: table.gameId, word: 'second' });
     expect((await error).message).toMatch(/already locked in/i);
   });
 
-  it('rejects multi-word and non-letter submissions', async () => {
-    const match = await setupPair();
-    await startMatch(match);
-
-    const firstError = waitFor<{ message: string }>(match.socketA, 'game:error');
-    match.socketA.emit('game:submit', { gameId: match.gameId, word: 'world cup' });
-    expect((await firstError).message).toMatch(/one word/i);
-
-    const secondError = waitFor<{ message: string }>(match.socketA, 'game:error');
-    match.socketA.emit('game:submit', { gameId: match.gameId, word: 'fifa23' });
-    expect((await secondError).message).toMatch(/letters only/i);
-  });
-
-  it('refuses to let an outsider into the room', async () => {
-    const match = await setupPair();
+  it('refuses to let an outsider into the game room', async () => {
+    const table = await seat(2);
     const outsider = await client.register(`out${seq}`);
     const socket = track(connectSocket(server, outsider));
     await waitFor(socket, 'session:ready');
 
     const error = waitFor<{ message: string }>(socket, 'game:error');
-    socket.emit('game:join', { gameId: match.gameId });
+    socket.emit('game:join', { gameId: table.gameId });
     expect((await error).message).toMatch(/not in this game/i);
-  });
-
-  it('refuses an unauthenticated socket', async () => {
-    const { io: ioClient } = await import('socket.io-client');
-    const socket = track(
-      ioClient(server.baseUrl, { transports: ['websocket'], reconnection: false }),
-    );
-    const error = await waitFor<Error>(socket, 'connect_error');
-    expect(error.message).toBe('unauthorized');
   });
 });
 
-describe('leaving a game', () => {
-  /**
-   * The regression test for the original scoring bug: a player who drops out
-   * must not end up with a score that beats a genuine match.
-   */
-  it('abandons without a score when a player does not come back', async () => {
-    const match = await setupPair();
-    await startMatch(match);
+describe('players leaving', () => {
+  it('carries on when one of eight drops out', async () => {
+    const table = await seat(8);
 
-    const ended = waitFor<EndedPayload>(match.socketA, 'game:ended', 10_000);
-    match.socketB.disconnect();
+    const left = waitFor<{ remaining: number }>(table.sockets[0] as ClientSocket, 'player:left');
+    table.sockets[7]?.disconnect();
 
-    const result = await ended;
-    expect(result.outcome).toBe('ABANDONED');
-    expect(result.finalScore).toBeNull();
-    expect(result.reason).toMatch(/did not return/i);
+    expect((await left).remaining).toBe(7);
 
-    const row = await prisma.game.findUniqueOrThrow({ where: { id: match.gameId } });
-    expect(row.outcome).toBe('ABANDONED');
-    expect(row.finalScore).toBeNull();
-
-    // And it must never reach the leaderboard.
-    const leaderboard = await client.get('/api/games/leaderboard', match.a.cookie);
-    expect(leaderboard.body.leaderboard).toEqual([]);
-  });
-
-  it('tells the remaining player their partner dropped, with a grace window', async () => {
-    const match = await setupPair();
-    await startMatch(match);
-
-    const presenceEvent = waitFor<{ online: boolean; graceMs: number }>(
-      match.socketA,
-      'game:presence',
-    );
-    match.socketB.disconnect();
-
-    const event = await presenceEvent;
-    expect(event.online).toBe(false);
-    expect(event.graceMs).toBeGreaterThan(0);
-  });
-
-  it('stays quiet about a drop brief enough to resolve itself', async () => {
-    const match = await setupPair();
-    await startMatch(match);
-
-    const announcements: unknown[] = [];
-    match.socketA.on('game:presence', (payload: { announced?: boolean }) => {
-      // Raw presence pings keep the indicator fresh; only "announced" events
-      // are the ones a player is actually interrupted by.
-      if (payload.announced) announcements.push(payload);
-    });
-
-    // A page remount or a momentary wifi blip: gone and back inside the
-    // announce delay. The partner should never see a "dropped" flicker.
-    match.socketB.disconnect();
-    const back = track(connectSocket(server, match.b));
-    await waitFor(back, 'session:ready');
-    back.emit('game:join', { gameId: match.gameId });
-    await waitFor(back, 'game:state');
-
-    await sleep(400);
-    expect(announcements).toEqual([]);
-  });
-
-  it('keeps the game alive when a dropped player reconnects in time', async () => {
-    const match = await setupPair();
-    await startMatch(match);
-
-    match.socketB.disconnect();
-    await sleep(150);
-
-    const back = track(connectSocket(server, match.b));
-    await waitFor(back, 'session:ready');
-    const rejoined = waitFor<GameStateView>(back, 'game:state');
-    back.emit('game:join', { gameId: match.gameId });
-
-    expect((await rejoined).status).toBe('ACTIVE');
-
-    // Past the grace window the game is still running.
-    await sleep(700);
-    const row = await prisma.game.findUniqueOrThrow({ where: { id: match.gameId } });
+    // The game is still running, not abandoned.
+    const row = await prisma.game.findUniqueOrThrow({ where: { id: table.gameId } });
     expect(row.status).toBe('ACTIVE');
   });
 
+  /**
+   * The regression that matters: a player who quits must never end up with a
+   * score that beats a group who genuinely connected.
+   */
+  it('abandons without a score when nobody connected', async () => {
+    const table = await seat(2);
+
+    const finish = ended(table);
+    table.sockets[1]?.disconnect();
+
+    const result = await finish;
+    expect(result.outcome).toBe('ABANDONED');
+    expect(result.finalScore).toBeNull();
+
+    const row = await prisma.game.findUniqueOrThrow({ where: { id: table.gameId } });
+    expect(row.finalScore).toBeNull();
+
+    const board = await client.get('/api/games/leaderboard', table.host.cookie);
+    expect(board.body.leaderboard).toEqual([]);
+  });
+
+  it('removes a player who stays silent too long', async () => {
+    const table = await seat(3);
+
+    // MAX_MISSED_ROUNDS is 3 under test. Two players keep playing; the third
+    // never speaks, and should be nudged out rather than stalling everyone.
+    const script = [
+      ['north', 'south', null],
+      ['amber', 'cobalt', null],
+      ['maple', 'cedar', null],
+    ];
+
+    for (let round = 1; round <= 3; round += 1) {
+      const watcher = reveal(table);
+      const next = round < 3 ? nextRound(table) : null;
+      submitAll(table, script[round - 1] as (string | null)[]);
+      await watcher;
+      if (next) await next;
+    }
+
+    // The two who kept playing must still be in the circle.
+    const survivors = await prisma.gamePlayer.count({
+      where: { gameId: table.gameId, status: 'ACTIVE' },
+    });
+    expect(survivors).toBe(2);
+
+    await sleep(200);
+    const player = await prisma.gamePlayer.findFirstOrThrow({
+      where: { gameId: table.gameId, userId: (table.users[2] as TestUser).id },
+    });
+    expect(player.status).toBe('LEFT');
+  });
+
   it('forfeits without a score', async () => {
-    const match = await setupPair();
-    await startMatch(match);
+    const table = await seat(4);
+    const finish = ended(table, 1);
+    table.sockets[0]?.emit('game:forfeit', { gameId: table.gameId });
 
-    const ended = waitFor<EndedPayload>(match.socketB, 'game:ended');
-    match.socketA.emit('game:forfeit', { gameId: match.gameId });
-
-    const result = await ended;
+    const result = await finish;
     expect(result.outcome).toBe('FORFEITED');
     expect(result.finalScore).toBeNull();
   });
 });
 
 describe('leaderboard', () => {
-  it('ranks pairs by their best score and ignores unscored games', async () => {
-    const first = await setupPair();
-    await startMatch(first);
-    const firstEnded = waitFor<EndedPayload>(first.socketA, 'game:ended');
-    first.socketA.emit('game:submit', { gameId: first.gameId, word: 'fifa' });
-    first.socketB.emit('game:submit', { gameId: first.gameId, word: 'fifa' });
-    expect((await firstEnded).finalScore).toBe(1);
+  it('buckets circles by player count', async () => {
+    const two = await seat(2);
+    const twoEnded = ended(two);
+    submitAll(two, ['ocean', 'ocean']);
+    await twoEnded;
 
-    const second = await setupPair();
-    await startMatch(second);
-    const secondEnded = waitFor<EndedPayload>(second.socketA, 'game:ended');
-    second.socketB.disconnect();
-    expect((await secondEnded).outcome).toBe('ABANDONED');
+    const four = await seat(4);
+    const fourEnded = ended(four);
+    submitAll(four, ['signal', 'signal', 'amber', 'amber']);
+    await fourEnded;
 
-    const leaderboard = await client.get('/api/games/leaderboard', first.a.cookie);
-    const rows = leaderboard.body.leaderboard as { rank: number; bestScore: number }[];
+    const all = await client.get('/api/games/leaderboard', two.host.cookie);
+    expect((all.body.availableSizes as { playerCount: number }[]).map((s) => s.playerCount)).toEqual(
+      [2, 4],
+    );
 
+    const justFour = await client.get('/api/games/leaderboard?size=4', two.host.cookie);
+    const rows = justFour.body.leaderboard as { playerCount: number; perfectCircle: boolean }[];
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.rank).toBe(1);
-    expect(rows[0]?.bestScore).toBe(1);
+    expect(rows[0]?.playerCount).toBe(4);
+    expect(rows[0]?.perfectCircle).toBe(true);
+  });
+
+  it('lists a group once, at its best circle', async () => {
+    const first = await seat(2);
+    const slow = ended(first);
+    // Round one: a miss, so this pair's score will be 2.
+    const miss = reveal(first);
+    submitAll(first, ['north', 'south']);
+    await miss;
+    await nextRound(first);
+    submitAll(first, ['ocean', 'ocean']);
+    expect((await slow).finalScore).toBe(2);
+
+    // The same two players, playing again and doing better.
+    const room = await client.createRoom(first.host, { maxPlayers: 2 });
+    await client.post('/api/rooms/join', { code: room.code }, (first.users[1] as TestUser).cookie);
+    const gameId = await client.startRoom(first.host, room.id);
+
+    const rematchStart = waitFor(first.sockets[0] as ClientSocket, 'round:started');
+    for (const socket of first.sockets) socket.emit('game:join', { gameId });
+    await rematchStart;
+
+    const fast = waitFor<EndedPayload>(first.sockets[0] as ClientSocket, 'game:ended', 15_000);
+    for (const socket of first.sockets) socket.emit('game:submit', { gameId, word: 'signal' });
+    expect((await fast).finalScore).toBe(1);
+
+    const board = await client.get('/api/games/leaderboard?size=2', first.host.cookie);
+    const rows = board.body.leaderboard as { finalScore: number; games: number }[];
+
+    // One row for the pair, carrying their best score and how often they played.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.finalScore).toBe(1);
+    expect(rows[0]?.games).toBe(2);
+  });
+});
+
+describe('round length', () => {
+  it('plays at the length the host set, and keeps it across a restart', async () => {
+    seq += 1;
+    const host = await client.register(`tl${seq}a`);
+    const guest = await client.register(`tl${seq}b`);
+    const room = await client.createRoom(host, { maxPlayers: 2 });
+    await client.post('/api/rooms/join', { code: room.code }, guest.cookie);
+
+    // Well above the suite's 700ms default, so the effect is unmistakable.
+    await client.post(`/api/rooms/${room.id}/settings`, { roundDurationMs: 9_000 }, host.cookie);
+
+    const sockets = [host, guest].map((user) => track(connectSocket(server, user)));
+    await Promise.all(sockets.map((socket) => waitFor(socket, 'session:ready')));
+
+    const gameId = await client.startRoom(host, room.id);
+    const started = waitFor<{ durationMs: number; deadlineAt: number }>(
+      sockets[0] as ClientSocket,
+      'round:started',
+    );
+    for (const socket of sockets) socket.emit('game:join', { gameId });
+
+    const round = await started;
+    expect(round.durationMs).toBe(9_000);
+    // The deadline is roughly nine seconds out, not the suite default.
+    expect(round.deadlineAt - Date.now()).toBeGreaterThan(7_000);
+
+    const view = viewFor(gameId, host.id);
+    expect(view?.roundDurationMs).toBe(9_000);
+
+    shutdownEngine();
+    await restoreLiveGames();
+    expect(viewFor(gameId, host.id)?.roundDurationMs).toBe(9_000);
   });
 });
 
 describe('restart recovery', () => {
-  it('restores an in-progress game from the database', async () => {
-    const match = await setupPair();
-    await startMatch(match);
-    match.socketA.emit('game:submit', { gameId: match.gameId, word: 'persist' });
+  it('restores an in-progress game, its played words and its connections', async () => {
+    const table = await seat(5);
+
+    const first = reveal(table);
+    submitAll(table, ['ocean', 'ocean', 'north', 'south', 'east']);
+    await first;
+    await nextRound(table, 2);
+
+    table.sockets[2]?.emit('game:submit', { gameId: table.gameId, word: 'harbour' });
     await sleep(150);
 
-    // Simulate a process restart: drop all in-memory state, then reload.
+    // Simulate a process restart.
     shutdownEngine();
-    expect(viewFor(match.gameId, match.a.id)).toBeNull();
+    expect(viewFor(table.gameId, (table.users[2] as TestUser).id)).toBeNull();
 
     const restored = await restoreLiveGames();
     expect(restored).toBeGreaterThanOrEqual(1);
 
-    const view = viewFor(match.gameId, match.a.id);
-    expect(view).not.toBeNull();
+    const view = viewFor(table.gameId, (table.users[2] as TestUser).id);
     expect(view?.status).toBe('ACTIVE');
-    // The submitted word survived the restart.
-    expect(view?.youSubmitted).toBe(true);
-    expect(view?.youWord).toBe('persist');
+    expect(view?.youWord).toBe('harbour');
+    expect(view?.connections).toHaveLength(1);
+    expect(view?.activeCount).toBe(3);
+    // The ban list has to survive, or the no-repeat rule silently stops working.
+    expect(view?.playedWords.map((w) => w.toLowerCase()).sort()).toEqual([
+      'east',
+      'north',
+      'ocean',
+      'south',
+    ]);
   });
 });

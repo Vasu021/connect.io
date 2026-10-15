@@ -74,19 +74,27 @@ export default function ProfilePage() {
           <section className="card span-2">
             <div className="card-head">
               <h2>Record</h2>
-              <span className="small faint">A lower best score is a closer mind</span>
+              <span className="small faint">Connect early, close fast</span>
             </div>
             <div className="stat-grid">
               <div className="stat">
                 <div className="stat-value is-best">{profile.stats.bestScore ?? '—'}</div>
-                <div className="tiny">Best score</div>
+                <div className="tiny">Best circle</div>
               </div>
               <div className="stat">
-                <div className="stat-value">{profile.stats.averageScore ?? '—'}</div>
-                <div className="tiny">Average</div>
+                <div className="stat-value">{profile.stats.firstPlaceFinishes}</div>
+                <div className="tiny">1st connections</div>
               </div>
               <div className="stat">
-                <div className="stat-value">{profile.stats.gamesMatched}</div>
+                <div className="stat-value">{profile.stats.averagePlacement ?? '—'}</div>
+                <div className="tiny">Avg placement</div>
+              </div>
+              <div className="stat">
+                <div className="stat-value">{profile.stats.fastestConnection ?? '—'}</div>
+                <div className="tiny">Fastest connect</div>
+              </div>
+              <div className="stat">
+                <div className="stat-value">{profile.stats.gamesConnected}</div>
                 <div className="tiny">Connected</div>
               </div>
               <div className="stat">
@@ -94,25 +102,25 @@ export default function ProfilePage() {
                 <div className="tiny">Played</div>
               </div>
               <div className="stat">
-                <div className="stat-value">{profile.stats.unmatched}</div>
-                <div className="tiny">No match</div>
+                <div className="stat-value">{profile.stats.perfectCircles}</div>
+                <div className="tiny">Perfect circles</div>
               </div>
               <div className="stat">
-                <div className="stat-value">{profile.stats.abandoned}</div>
-                <div className="tiny">Unfinished</div>
+                <div className="stat-value">{profile.stats.wildcards}</div>
+                <div className="tiny">Wildcards</div>
               </div>
             </div>
           </section>
 
           <section className="card span-2">
             <div className="card-head">
-              <h2>Closest partners</h2>
-              <span className="small faint">Best score together</span>
+              <h2>Closest minds</h2>
+              <span className="small faint">People they connect with most</span>
             </div>
 
             {profile.stats.topPartners.length === 0 ? (
               <div className="empty">
-                No connected games yet — a score needs two people who actually matched.
+                No connections yet — a placement needs two people who said the same word.
               </div>
             ) : (
               <div className="rows">
@@ -125,11 +133,12 @@ export default function ProfilePage() {
                           <Link to={`/player/${partner.id}`}>@{partner.username}</Link>
                         </div>
                         <div className="small faint">
-                          {partner.games} {partner.games === 1 ? 'game' : 'games'} together
+                          connected {partner.times} {partner.times === 1 ? 'time' : 'times'}
+                          {partner.fastest !== null ? ` · fastest round ${partner.fastest}` : ''}
                         </div>
                       </div>
                     </div>
-                    <span className="score-chip">{partner.best}</span>
+                    <span className="score-chip">{partner.times}</span>
                   </div>
                 ))}
               </div>

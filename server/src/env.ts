@@ -25,7 +25,11 @@ const schema = z.object({
   REVEAL_PAUSE_MS: z.coerce.number().int().min(50).max(30_000).default(3_500),
   RECONNECT_GRACE_MS: z.coerce.number().int().min(200).max(300_000).default(30_000),
   PRESENCE_ANNOUNCE_DELAY_MS: z.coerce.number().int().min(0).max(30_000).default(1_500),
-  MAX_ROUNDS: z.coerce.number().int().min(1).max(100).default(20),
+  MAX_ROUNDS: z.coerce.number().int().min(1).max(100).default(15),
+  /** Grace after the host starts, so stragglers do not miss round one. */
+  START_GRACE_MS: z.coerce.number().int().min(0).max(60_000).default(10_000),
+  /** Consecutive silent rounds before a player is nudged out of the circle. */
+  MAX_MISSED_ROUNDS: z.coerce.number().int().min(1).max(20).default(3),
   INVITE_TTL_MS: z.coerce.number().int().min(1_000).default(60 * 60 * 1000),
   /** Only enable behind a proxy you control; it makes rate limiting trust X-Forwarded-For. */
   TRUST_PROXY: z

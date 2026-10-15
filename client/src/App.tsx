@@ -5,6 +5,7 @@ import GamePage from './pages/GamePage';
 import HistoryPage from './pages/HistoryPage';
 import LoginPage from './pages/LoginPage';
 import ProfilePage from './pages/ProfilePage';
+import RoomPage from './pages/RoomPage';
 import RegisterPage from './pages/RegisterPage';
 import type { ReactElement } from 'react';
 
@@ -60,6 +61,14 @@ export default function App() {
         element={
           <Protected>
             <DashboardPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/room/:roomId"
+        element={
+          <Protected>
+            <RoomPage />
           </Protected>
         }
       />

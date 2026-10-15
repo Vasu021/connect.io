@@ -1,8 +1,15 @@
 // connect.io — data model
 //
-// A game is scored on the PAIR, not the player: `finalScore` is the round
-// number on which both players submitted the same word. Lower is better.
-// Only games with outcome MATCHED carry a score and reach the leaderboard.
+// The game is "Connections": 2–8 players in a room each submit one word per
+// round, blind. Everyone whose word matches at least one other player connects
+// and leaves the circle as a numbered Connection (#1, #2, …). Play continues
+// until everyone is connected or one player is left alone.
+//
+// Two layers of result:
+//   • Connection.placement — personal; connect early to place high.
+//   • Game.finalScore      — the round the circle closed. Shared. Lower is better.
+//
+// Only outcome MATCHED carries a finalScore and reaches the leaderboard.
 
 generator client {
   provider = "prisma-client-js"
@@ -20,6 +27,19 @@ enum FriendRequestStatus {
   CANCELLED
 }
 
+enum RoomStatus {
+  LOBBY
+  IN_GAME
+  CLOSED
+}
+
+enum RoomInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
 enum GameStatus {
   WAITING
   ACTIVE
@@ -27,14 +47,22 @@ enum GameStatus {
 }
 
 enum GameOutcome {
-  /// Both players submitted the same word — the only outcome that scores.
+  /// The circle closed: everyone connected, or one player was left alone.
+  /// The only outcome that scores.
   MATCHED
-  /// Round cap reached without a match.
+  /// Round cap reached with two or more players still unconnected.
   UNMATCHED
-  /// A player dropped and did not return within the grace period.
+  /// Too few players remained to continue.
   ABANDONED
-  /// A player deliberately ended the game.
+  /// Deliberately ended.
   FORFEITED
+}
+
+enum GamePlayerStatus {
+  ACTIVE
+  CONNECTED
+  /// Dropped out, removed after the reconnect grace or for being idle.
+  LEFT
 }
 
 model User {
@@ -51,8 +79,12 @@ model User {
   receivedRequests FriendRequest[] @relation("RequestTo")
   friendshipsA     Friendship[]    @relation("FriendA")
   friendshipsB     Friendship[]    @relation("FriendB")
-  gamesAsPlayer1   Game[]          @relation("Player1")
-  gamesAsPlayer2   Game[]          @relation("Player2")
+  hostedRooms      Room[]          @relation("RoomHost")
+  roomMemberships  RoomMember[]
+  sentInvites      RoomInvite[]    @relation("InviteFrom")
+  receivedInvites  RoomInvite[]    @relation("InviteTo")
+  gamePlayers      GamePlayer[]
+  submissions      Submission[]
 
   @@index([usernameLower])
 }
@@ -76,6 +108,7 @@ model Friendship {
   id        String   @id @default(uuid())
   /// Pairs are stored with user1Id < user2Id (lexicographic) so the unique
   /// constraint catches duplicates regardless of who sent the request.
+  /// Friendship drives the invite list and presence — it no longer gates play.
   user1Id   String
   user2Id   String
   createdAt DateTime @default(now())
@@ -88,47 +121,170 @@ model Friendship {
   @@index([user2Id])
 }
 
+model Room {
+  id              String     @id @default(uuid())
+  code            String     @unique
+  name            String?
+  /// bcrypt hash. Null means the room is open to anyone holding the code.
+  /// An explicit invite bypasses the password.
+  passwordHash    String?
+  hostId          String
+  maxPlayers      Int        @default(8)
+  /// How long each round lasts, in milliseconds. The host can change this in
+  /// the lobby; it is copied onto the Game when play starts.
+  roundDurationMs Int        @default(15000)
+  status          RoomStatus @default(LOBBY)
+  createdAt       DateTime   @default(now())
+  closedAt        DateTime?
+
+  host    User         @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
+  members RoomMember[]
+  invites RoomInvite[]
+  games   Game[]
+
+  @@index([status])
+  @@index([hostId])
+}
+
+model RoomMember {
+  id       String   @id @default(uuid())
+  roomId   String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+}
+
+model RoomInvite {
+  id          String           @id @default(uuid())
+  roomId      String
+  fromUserId  String
+  toUserId    String
+  status      RoomInviteStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  respondedAt DateTime?
+
+  room     Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  fromUser User @relation("InviteFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("InviteTo", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, toUserId])
+  @@index([toUserId, status])
+}
+
 model Game {
-  id        String      @id @default(uuid())
-  roomCode  String      @unique
-  player1Id String
-  player2Id String
-  status    GameStatus  @default(WAITING)
-  outcome   GameOutcome?
-  /// Round number the pair matched on. Null unless outcome is MATCHED.
-  finalScore Int?
+  id              String       @id @default(uuid())
+  roomId          String
+  status          GameStatus   @default(WAITING)
+  outcome         GameOutcome?
+  /// Round the circle closed. Null unless outcome is MATCHED.
+  finalScore      Int?
+  /// How many players started. Leaderboards are bucketed by this, because a
+  /// score of 6 at eight players is not comparable to 6 at two.
+  playerCount     Int
+  /// True when nobody was left over.
+  perfectCircle   Boolean      @default(false)
+  /// Copied from the room at start, so a game keeps the length it was
+  /// played at even if the room default changes later.
+  roundDurationMs Int          @default(15000)
 
   /// Live round state, persisted so an in-progress game survives a restart.
-  currentRound  Int      @default(0)
+  currentRound  Int       @default(0)
   roundDeadline DateTime?
   /// Map of userId -> submitted word for the round in progress.
-  submissions   Json     @default("{}")
+  submissions   Json      @default("{}")
 
   createdAt DateTime  @default(now())
   startedAt DateTime?
   endedAt   DateTime?
 
-  player1 User    @relation("Player1", fields: [player1Id], references: [id], onDelete: Cascade)
-  player2 User    @relation("Player2", fields: [player2Id], references: [id], onDelete: Cascade)
-  rounds  Round[]
+  room        Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  players     GamePlayer[]
+  connections Connection[]
+  rounds      Round[]
+  allWords    Submission[]
 
   @@index([status])
-  @@index([player1Id, status])
-  @@index([player2Id, status])
-  @@index([outcome, finalScore])
+  @@index([roomId])
+  @@index([outcome, playerCount, finalScore])
+}
+
+model GamePlayer {
+  id               String           @id @default(uuid())
+  gameId           String
+  userId           String
+  status           GamePlayerStatus @default(ACTIVE)
+  connectionId     String?
+  /// Placement of the Connection this player left in: 1, 2, 3 …
+  placement        Int?
+  connectedAtRound Int?
+  /// Consecutive rounds with no submission; three in a row marks a player LEFT
+  /// so one idle tab cannot stall everyone else.
+  missedRounds     Int              @default(0)
+  joinedAt         DateTime         @default(now())
+
+  game       Game        @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection Connection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@unique([gameId, userId])
+  @@index([userId])
+  @@index([gameId, status])
+}
+
+/// A group of two or more players who said the same word in the same round.
+model Connection {
+  id          String   @id @default(uuid())
+  gameId      String
+  /// 1 for the first group out, 2 for the next, and so on.
+  placement   Int
+  word        String
+  roundNumber Int
+  createdAt   DateTime @default(now())
+
+  game    Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  players GamePlayer[]
+
+  @@unique([gameId, placement])
+  @@index([gameId])
 }
 
 model Round {
   id          String   @id @default(uuid())
   gameId      String
   roundNumber Int
-  player1Word String?
-  player2Word String?
-  matched     Boolean  @default(false)
   revealedAt  DateTime @default(now())
 
-  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  game        Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  submissions Submission[]
 
   @@unique([gameId, roundNumber])
   @@index([gameId])
+}
+
+model Submission {
+  id         String  @id @default(uuid())
+  roundId    String
+  /// Denormalised from the round so the per-game banned-word lookup is a single
+  /// indexed query rather than a join.
+  gameId     String
+  userId     String
+  word       String
+  /// Output of normalizeWord(): lowercased, trimmed, accents folded. This is
+  /// what both matching and the no-repeat rule compare on.
+  normalized String
+  /// True when this submission was part of a Connection.
+  matched    Boolean @default(false)
+
+  round Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  game  Game  @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, userId])
+  @@index([gameId, normalized])
+  @@index([userId])
 }

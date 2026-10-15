@@ -13,7 +13,9 @@
     "prisma:studio": "prisma studio",
     "seed:import": "tsx scripts/import-json.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "backfill": "tsx scripts/backfill-multiplayer.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

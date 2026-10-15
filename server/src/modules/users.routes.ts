@@ -80,8 +80,8 @@ usersRouter.get(
 );
 
 /**
- * A player's record. Because the score belongs to the pair, the headline stat
- * is their best partnership, not a solo number.
+ * A player's record. Placement is personal — connecting early is the thing you
+ * can be good at — while the room score belongs to everyone in the circle.
  */
 usersRouter.get(
   '/:id/stats',
@@ -95,58 +95,94 @@ usersRouter.get(
     });
     if (!user) throw notFound('No such player');
 
-    const games = await prisma.game.findMany({
-      where: {
-        status: 'COMPLETED',
-        OR: [{ player1Id: id }, { player2Id: id }],
-      },
+    const entries = await prisma.gamePlayer.findMany({
+      where: { userId: id, game: { status: 'COMPLETED' } },
       select: {
-        id: true,
-        outcome: true,
-        finalScore: true,
-        endedAt: true,
-        player1: { select: { id: true, username: true } },
-        player2: { select: { id: true, username: true } },
+        status: true,
+        placement: true,
+        connectedAtRound: true,
+        connectionId: true,
+        game: {
+          select: {
+            id: true,
+            outcome: true,
+            finalScore: true,
+            playerCount: true,
+            perfectCircle: true,
+          },
+        },
       },
-      orderBy: { endedAt: 'desc' },
     });
 
-    const matched = games.filter((g) => g.outcome === 'MATCHED' && g.finalScore !== null);
-    const scores = matched.map((g) => g.finalScore as number);
+    const connected = entries.filter((entry) => entry.placement !== null);
+    const scored = entries.filter(
+      (entry) => entry.game.outcome === 'MATCHED' && entry.game.finalScore !== null,
+    );
+    const placements = connected.map((entry) => entry.placement as number);
+    const connectRounds = connected
+      .map((entry) => entry.connectedAtRound)
+      .filter((round): round is number => round !== null);
+
+    // Who this player actually clicks with: everyone who has been inside the
+    // same Connection as them.
+    const connectionIds = connected
+      .map((entry) => entry.connectionId)
+      .filter((value): value is string => value !== null);
+
+    const partnerRows = connectionIds.length
+      ? await prisma.gamePlayer.findMany({
+          where: { connectionId: { in: connectionIds }, userId: { not: id } },
+          select: {
+            userId: true,
+            connectedAtRound: true,
+            user: { select: { id: true, username: true } },
+          },
+        })
+      : [];
 
     const partners = new Map<
       string,
-      { id: string; username: string; games: number; best: number | null }
+      { id: string; username: string; times: number; fastest: number | null }
     >();
 
-    for (const game of games) {
-      const other = game.player1.id === id ? game.player2 : game.player1;
+    for (const row of partnerRows) {
       const entry =
-        partners.get(other.id) ?? { id: other.id, username: other.username, games: 0, best: null };
-      entry.games += 1;
-      if (game.outcome === 'MATCHED' && game.finalScore !== null) {
-        entry.best = entry.best === null ? game.finalScore : Math.min(entry.best, game.finalScore);
+        partners.get(row.userId) ??
+        { id: row.user.id, username: row.user.username, times: 0, fastest: null };
+      entry.times += 1;
+      if (row.connectedAtRound !== null) {
+        entry.fastest =
+          entry.fastest === null ? row.connectedAtRound : Math.min(entry.fastest, row.connectedAtRound);
       }
-      partners.set(other.id, entry);
+      partners.set(row.userId, entry);
     }
 
-    const ranked = [...partners.values()]
-      .filter((p) => p.best !== null)
-      .sort((a, b) => (a.best as number) - (b.best as number))
+    const topPartners = [...partners.values()]
+      .sort((a, b) => b.times - a.times || (a.fastest ?? 99) - (b.fastest ?? 99))
       .slice(0, 5);
+
+    const average = (values: number[]) =>
+      values.length ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10 : null;
 
     res.json({
       user: { ...user, online: presence.isOnline(user.id) },
       stats: {
-        gamesPlayed: games.length,
-        gamesMatched: matched.length,
-        bestScore: scores.length ? Math.min(...scores) : null,
-        averageScore: scores.length
-          ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
+        gamesPlayed: entries.length,
+        gamesConnected: connected.length,
+        bestScore: scored.length
+          ? Math.min(...scored.map((entry) => entry.game.finalScore as number))
           : null,
-        unmatched: games.filter((g) => g.outcome === 'UNMATCHED').length,
-        abandoned: games.filter((g) => g.outcome === 'ABANDONED' || g.outcome === 'FORFEITED').length,
-        topPartners: ranked,
+        averageScore: average(scored.map((entry) => entry.game.finalScore as number)),
+        firstPlaceFinishes: placements.filter((placement) => placement === 1).length,
+        averagePlacement: average(placements),
+        fastestConnection: connectRounds.length ? Math.min(...connectRounds) : null,
+        perfectCircles: entries.filter((entry) => entry.game.perfectCircle).length,
+        // Left standing alone when the circle closed.
+        wildcards: entries.filter(
+          (entry) => entry.game.outcome === 'MATCHED' && entry.placement === null,
+        ).length,
+        unfinished: entries.filter((entry) => entry.game.outcome !== 'MATCHED').length,
+        topPartners,
       },
     });
   }),

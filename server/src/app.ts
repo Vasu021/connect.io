@@ -8,6 +8,7 @@ import { apiLimiter } from './lib/limits.js';
 import { authRouter } from './modules/auth.routes.js';
 import { friendsRouter } from './modules/friends.routes.js';
 import { gamesRouter } from './modules/games.routes.js';
+import { roomsRouter } from './modules/rooms.routes.js';
 import { usersRouter } from './modules/users.routes.js';
 
 export function createApp() {
@@ -53,6 +54,7 @@ export function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/friends', friendsRouter);
+  app.use('/api/rooms', roomsRouter);
   app.use('/api/games', gamesRouter);
 
   app.use((_req, res) => {

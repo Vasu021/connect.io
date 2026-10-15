@@ -21,6 +21,7 @@ export function hasIo(): boolean {
 
 export const userRoom = (userId: string) => `user:${userId}`;
 export const gameRoom = (gameId: string) => `game:${gameId}`;
+export const lobbyRoom = (roomId: string) => `room:${roomId}`;
 
 export function emitToUser(userId: string, event: string, payload: unknown): void {
   if (!server) return;
@@ -30,4 +31,9 @@ export function emitToUser(userId: string, event: string, payload: unknown): voi
 export function emitToGame(gameId: string, event: string, payload: unknown): void {
   if (!server) return;
   server.to(gameRoom(gameId)).emit(event, payload);
+}
+
+export function emitToRoom(roomId: string, event: string, payload: unknown): void {
+  if (!server) return;
+  server.to(lobbyRoom(roomId)).emit(event, payload);
 }
