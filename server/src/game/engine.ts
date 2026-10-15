@@ -10,6 +10,7 @@ import {
   REVEAL_PAUSE_MS,
   START_GRACE_MS,
 } from './constants.js';
+import { onImageReady, readyImagesFor, requestImage } from '../images/index.js';
 import { groupSubmissions } from './grouping.js';
 import type { ConnectionView, GameStateView, PlayerView, RoundView } from './types.js';
 import { normalizeWord, validateWord } from './words.js';
@@ -38,6 +39,8 @@ type LiveGame = {
   bannedWords: Set<string>;
   /** Same words in play order, for display. */
   playedWords: string[];
+  /** Pictures for revealed words only, keyed by normalised word. */
+  images: Map<string, import('./types.js').WordImageView>;
   connections: ConnectionView[];
   rounds: RoundView[];
   roundDeadline: number | null;
@@ -50,6 +53,13 @@ type LiveGame = {
   socketsByUser: Map<string, Set<string>>;
   everJoined: Set<string>;
 
+  /**
+   * Guards against resolving the same round twice. Two players can submit in
+   * the same tick: each awaits its persist, each then sees a full round, and
+   * both call resolveRound. Without this the second run double-counts idle
+   * players before the unique index on (gameId, roundNumber) rejects it.
+   */
+  resolving: boolean;
   roundTimer: NodeJS.Timeout | null;
   nextRoundTimer: NodeJS.Timeout | null;
   startGraceTimer: NodeJS.Timeout | null;
@@ -146,6 +156,7 @@ export function stateFor(game: LiveGame, viewerId: string): GameStateView {
     connections: game.connections,
     rounds: game.rounds,
     playedWords: game.playedWords,
+    images: Object.fromEntries(game.images),
     wildcardId: game.wildcardId,
   };
 }
@@ -224,6 +235,7 @@ export async function createGameForRoom(
     submissions: new Map(),
     bannedWords: new Set(),
     playedWords: [],
+    images: new Map(),
     connections: [],
     rounds: [],
     roundDeadline: null,
@@ -233,6 +245,7 @@ export async function createGameForRoom(
     socketUsers: new Map(),
     socketsByUser: new Map(),
     everJoined: new Set(),
+    resolving: false,
     roundTimer: null,
     nextRoundTimer: null,
     startGraceTimer: null,
@@ -317,6 +330,21 @@ async function resolveRound(gameId: string): Promise<void> {
   const game = live.get(gameId);
   if (!game || game.status !== 'ACTIVE') return;
 
+  // Set synchronously, before any await, so a second caller in the same tick
+  // sees it and backs out.
+  if (game.resolving) return;
+  game.resolving = true;
+
+  try {
+    await resolveRoundInner(gameId, game);
+  } finally {
+    // endGame removes the game, in which case there is nothing left to clear.
+    const current = live.get(gameId);
+    if (current) current.resolving = false;
+  }
+}
+
+async function resolveRoundInner(gameId: string, game: LiveGame): Promise<void> {
   if (game.roundTimer) {
     clearTimeout(game.roundTimer);
     game.roundTimer = null;
@@ -462,11 +490,16 @@ async function resolveRound(gameId: string): Promise<void> {
   game.rounds.push(roundView);
   game.roundDeadline = null;
 
+  // Now that the words are public, their pictures can be too.
+  const revealedImages = await readyImagesFor(entries.map((entry) => entry.word));
+  for (const [word, view] of revealedImages) game.images.set(word, view);
+
   const remaining = activeIds(game);
 
   emitToGame(game.id, 'round:revealed', {
     gameId: game.id,
     round: roundView,
+    images: Object.fromEntries(revealedImages),
     playedWords: game.playedWords,
     remaining: remaining.length,
     isFinal: remaining.length <= 1 || roundNumber >= MAX_ROUNDS,
@@ -657,6 +690,11 @@ export async function submitWord(
   }
 
   game.submissions.set(userId, validation.word);
+
+  // Start fetching the picture now so it is ready at the reveal. This never
+  // blocks the round and never reaches a client before the words do.
+  requestImage(validation.word);
+
   await persistLiveState(game);
   broadcastState(game);
 
@@ -882,6 +920,7 @@ export async function restoreLiveGames(): Promise<number> {
       submissions,
       bannedWords,
       playedWords,
+      images: new Map(),
       connections,
       rounds: row.rounds.map((round) => ({
         roundNumber: round.roundNumber,
@@ -900,6 +939,7 @@ export async function restoreLiveGames(): Promise<number> {
       socketUsers: new Map(),
       socketsByUser: new Map(),
       everJoined: new Set(),
+      resolving: false,
       roundTimer: null,
       nextRoundTimer: null,
       startGraceTimer: null,
@@ -925,6 +965,25 @@ export async function restoreLiveGames(): Promise<number> {
   }
 
   return live.size;
+}
+
+/**
+ * Pushes a picture to any game where its word has already been revealed.
+ *
+ * `bannedWords` is the test for "revealed": a word only lands there when its
+ * round resolved, so a still-secret word can never match and can never be
+ * given away by its image arriving.
+ */
+export function attachImageUpdates(): () => void {
+  return onImageReady((view) => {
+    for (const game of live.values()) {
+      if (!game.bannedWords.has(view.word)) continue;
+      if (game.images.has(view.word)) continue;
+
+      game.images.set(view.word, view);
+      emitToGame(game.id, 'word:image', { gameId: game.id, image: view });
+    }
+  });
 }
 
 /** Test/shutdown helper — clears timers so the process can exit cleanly. */

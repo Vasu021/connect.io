@@ -61,13 +61,14 @@ connect.io/
 │  │  │  ├─ constants.ts       Timings and limits (env-driven)
 │  │  │  └─ types.ts           Player-facing view types
 │  │  ├─ room/rooms.ts         Lobbies: create, join, invite, start, sweep
+│  │  ├─ images/               Pixabay client, token bucket, word-image cache
 │  │  ├─ realtime/
 │  │  │  ├─ sockets.ts         Handshake auth + event handlers
 │  │  │  ├─ presence.ts        Reference-counted online tracking
 │  │  │  └─ hub.ts             Holds io; emit helpers (avoids import cycles)
-│  │  ├─ modules/*.routes.ts   auth / users / friends / rooms / games
+│  │  ├─ modules/*.routes.ts   auth / users / friends / rooms / games / images
 │  │  └─ lib/                  auth, errors, limits, validation, friends, codes
-│  └─ tests/                   91 tests: unit + API + socket end-to-end
+│  └─ tests/                   108 tests: unit + API + socket end-to-end
 └─ client/
    ├─ src/
    │  ├─ lib/                  api, auth, socket, types, format, placement
@@ -121,6 +122,11 @@ endGame           → COMPLETED + outcome, room CLOSED, timers cleared,
    `CONNECTED` with that placement and round.
 5. Every word submitted is added to the ban set, matched or not.
 6. If one or zero players remain active, the circle has closed.
+
+`resolveRound()` takes a `resolving` flag **synchronously, before its first
+await**. Two players submitting in the same tick each awaited their persist,
+each then saw a full round, and both resolved it — double-counting idle players
+before the unique index on `(gameId, roundNumber)` rejected the duplicate row.
 
 ### The scoring rule
 
@@ -402,6 +408,7 @@ drive the real engine at 700ms rounds instead of waiting out 15 seconds.
 | `words.test.ts` | Normalisation, validation, matching |
 | `grouping.test.ts` | Group formation, deterministic placement order |
 | `presence.test.ts` | Reference-counted online tracking |
+| `images.test.ts` | Token bucket, caching, dedupe, negative cache, backoff, feature off |
 | `api.test.ts` | Auth, cookies, enumeration resistance, friends, rooms, authorisation |
 | `game.test.ts` | Full socket games at 2–8 players |
 

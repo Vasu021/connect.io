@@ -42,7 +42,12 @@ Room score: 6 — the round the circle closed. Lower is better.
    Connection and share the placement.
 4. **Round cap of 15.** Reaching it with two or more players unconnected ends the
    game with no score.
-5. **Everything already said stays on screen.** Once a round reveals, those
+5. **Each revealed word gets a picture.** Once a round reveals, every word
+   carries a small image beside it, so the group's drift is something you can
+   see rather than only read. The picture is always *in addition to* the word,
+   never instead of it. Images never appear for the round in progress — one
+   would give the word away.
+6. **Everything already said stays on screen.** Once a round reveals, those
    words remain visible while the next round is thought through — on the circle
    beside whoever said them, pinned under the word box, and in a full
    round-by-round record. You are aiming for the middle of what the group just

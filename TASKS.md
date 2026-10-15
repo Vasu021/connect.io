@@ -32,6 +32,18 @@ Status of the build, and what is worth doing next.
 - [x] One-click two-player room from the friends list, invite included
 - [x] Stale lobbies swept after two hours
 
+### Word images
+- [x] A Pixabay picture beside every revealed word, prefetched on submit so it
+      is ready at the reveal
+- [x] Never shown for the round in progress — an image would give the word away
+- [x] Cached per normalised word, deduped in flight, token-bucketed under
+      Pixabay's 100/min, with a negative cache for words that have no pictures
+- [x] Downloaded to our own storage, since Pixabay forbids hotlinking and their
+      URLs expire after a day
+- [x] Attribution shown wherever images appear
+- [x] Pictures sized to the room — 2× at 2–4 players, 1.5× at 5, base at 6–8
+- [x] Degrades to nothing at all without an API key, or when Pixabay is down
+
 ### Interface
 - [x] The circle: players on a ring, chords snapping to each Connection's hub
 - [x] Per-Connection colours, placement badges, live lock-in pips
@@ -60,7 +72,8 @@ Status of the build, and what is worth doing next.
 - [x] History with the full round-by-round trail
 
 ### Foundation
-- [x] 91 server tests, including an eight-player secrecy test
+- [x] 108 server tests, including eight-player secrecy tests for words and images
+- [x] Fixed a double-resolve race when players submitted in the same tick
 - [x] Dashboard refetches coalesced — eight players no longer trip the limiter
 - [x] `npm audit` clean, transitive patches pinned via overrides
 - [x] Demo seeder for local eight-player testing
@@ -99,6 +112,13 @@ Status of the build, and what is worth doing next.
 - [ ] **Observability.** No structured logging or metrics. Rounds-to-close by
       player count, abandonment rate and placement distribution are the
       interesting signals.
+
+### Images, later
+- [ ] **Let players turn pictures off.** Some will find them distracting, and a
+      slow connection might not want them.
+- [ ] **Prune the image store.** Nothing deletes old files yet; a sweep for
+      images unused in N months would keep it bounded.
+- [ ] **Let a player reroll a picture** they think misrepresents their word.
 
 ### Housekeeping
 - [ ] Demo accounts (`demo1`…`demo8`, `demo_a`, `demo_b`) and the games they

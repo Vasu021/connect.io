@@ -1,7 +1,14 @@
 import type { Socket as ClientSocket } from 'socket.io-client';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/db.js';
-import { restoreLiveGames, shutdownEngine, viewFor } from '../src/game/engine.js';
+import {
+  attachImageUpdates,
+  restoreLiveGames,
+  shutdownEngine,
+  viewFor,
+} from '../src/game/engine.js';
+import { configureImages, resetImageState } from '../src/images/store.js';
+import type { PixabayClient } from '../src/images/pixabay.js';
 import type { ConnectionView, GameStateView, RoundView } from '../src/game/types.js';
 import {
   api,
@@ -340,6 +347,43 @@ describe('fair play', () => {
     expect((await error).message).toMatch(/already connected/i);
   });
 
+  /**
+   * Two players submitting in the same tick each awaited their persist, each
+   * then saw a full round, and both resolved it — double-counting idle players
+   * before the unique index rejected the duplicate round.
+   */
+  it('resolves a round exactly once when everyone submits at the same instant', async () => {
+    const table = await seat(4);
+
+    const errors: { message: string }[] = [];
+    for (const socket of table.sockets) {
+      socket.on('game:error', (payload: { message: string }) => errors.push(payload));
+    }
+
+    const reveals: unknown[] = [];
+    for (const socket of table.sockets) {
+      socket.on('round:revealed', (payload) => reveals.push(payload));
+    }
+
+    // No awaits between them: all four land in the same tick.
+    table.sockets.forEach((socket, index) => {
+      socket.emit('game:submit', { gameId: table.gameId, word: ['north', 'south', 'east', 'west'][index] });
+    });
+
+    // Short enough that round two (which starts after the reveal pause and
+    // runs a further 700ms) cannot have resolved and added a row of its own.
+    await sleep(350);
+
+    const rounds = await prisma.round.count({ where: { gameId: table.gameId } });
+    expect(rounds).toBe(1);
+    expect(errors).toEqual([]);
+    // One reveal per socket, not two.
+    expect(reveals).toHaveLength(4);
+
+    const submissions = await prisma.submission.count({ where: { gameId: table.gameId } });
+    expect(submissions).toBe(4);
+  });
+
   it('rejects a second submission in the same round', async () => {
     const table = await seat(4);
     table.sockets[0]?.emit('game:submit', { gameId: table.gameId, word: 'first' });
@@ -529,6 +573,113 @@ describe('round length', () => {
     shutdownEngine();
     await restoreLiveGames();
     expect(viewFor(gameId, host.id)?.roundDurationMs).toBe(9_000);
+  });
+});
+
+describe('word images', () => {
+  const HIT = {
+    id: 1,
+    pageURL: 'https://pixabay.com/photos/x-1/',
+    tags: 'a, b',
+    previewURL: 'https://cdn.pixabay.com/x_150.jpg',
+    previewWidth: 150,
+    previewHeight: 100,
+    user: 'someone',
+    user_id: 2,
+  };
+
+  function workingClient(): PixabayClient {
+    return {
+      async search() {
+        return { kind: 'hit', hit: HIT } as const;
+      },
+      async download() {
+        return { bytes: Buffer.from('bytes'), contentType: 'image/jpeg' };
+      },
+    };
+  }
+
+  /**
+   * The thing that would ruin the game: a picture of someone's word showing up
+   * before the reveal tells everyone exactly what they wrote.
+   */
+  it('never shows a picture for a word that has not revealed yet', async () => {
+    resetImageState();
+    configureImages({
+      client: workingClient(),
+      enabled: true,
+      storeDir: `/tmp/connectio-game-images-${process.pid}`,
+    });
+    const detach = attachImageUpdates();
+
+    try {
+      const table = await seat(4);
+
+      const leaked: unknown[] = [];
+      for (const socket of table.sockets) {
+        socket.on('word:image', (payload) => leaked.push(payload));
+      }
+
+      // Three of four speak, so the round stays open.
+      submitAll(table, ['ocean', 'signal', 'harbour', null]);
+      // Long enough for every image fetch to have finished.
+      await sleep(400);
+
+      for (const user of table.users) {
+        const view = viewFor(table.gameId, user.id);
+        expect(Object.keys(view?.images ?? {})).toEqual([]);
+      }
+      expect(leaked).toEqual([]);
+
+      // Once the round resolves the same pictures are fair game.
+      const revealed = reveal(table);
+      submitAll(table, [null, null, null, 'lantern']);
+      await revealed;
+      await sleep(300);
+
+      const after = viewFor(table.gameId, (table.users[0] as TestUser).id);
+      expect(Object.keys(after?.images ?? {}).sort()).toEqual([
+        'harbour',
+        'lantern',
+        'ocean',
+        'signal',
+      ]);
+    } finally {
+      detach();
+      configureImages({ enabled: false, client: null });
+      resetImageState();
+    }
+  });
+
+  it('plays a whole game normally when image fetching keeps failing', async () => {
+    resetImageState();
+    configureImages({
+      client: {
+        async search() {
+          return { kind: 'error', message: 'pixabay is down' } as const;
+        },
+        async download() {
+          return null;
+        },
+      },
+      enabled: true,
+      storeDir: `/tmp/connectio-game-images-${process.pid}`,
+    });
+
+    try {
+      const table = await seat(4);
+      const finish = ended(table);
+      submitAll(table, ['ocean', 'ocean', 'signal', 'signal']);
+
+      const result = await finish;
+      // The game is completely unaffected by Pixabay being unavailable.
+      expect(result.outcome).toBe('MATCHED');
+      expect(result.perfectCircle).toBe(true);
+      expect(result.connections).toHaveLength(2);
+    } finally {
+      configureImages({ enabled: false, client: null });
+      resetImageState();
+    }
   });
 });
 

@@ -5,7 +5,13 @@ import { forbidden, notFound, wrap } from '../lib/errors.js';
 import { idParamSchema, leaderboardQuerySchema, paginationSchema } from '../lib/validation.js';
 import { MAX_ROUNDS, ROUND_DURATION_MS } from '../game/constants.js';
 import { viewFor } from '../game/engine.js';
-import type { ConnectionView, GameStateView, RoundView } from '../game/types.js';
+import { readyImagesFor } from '../images/index.js';
+import type {
+  ConnectionView,
+  GameStateView,
+  RoundView,
+  WordImageView,
+} from '../game/types.js';
 import { presence } from '../realtime/presence.js';
 
 export const gamesRouter = Router();
@@ -85,6 +91,7 @@ function completedView(
     }[];
   },
   viewerId: string,
+  images: Record<string, WordImageView> = {},
 ): GameStateView {
   const connections = toConnections(game);
   const online = presence.onlineAmong(game.players.map((p) => p.userId));
@@ -145,6 +152,8 @@ function completedView(
     connections,
     rounds,
     playedWords,
+    // Every round here is finished, so all of its pictures are public.
+    images,
     wildcardId: leftover.length === 1 ? (leftover[0]?.userId ?? null) : null,
   };
 }
@@ -342,6 +351,11 @@ gamesRouter.get(
     if (!game) throw notFound('Game not found');
     if (!game.players.some((player) => player.userId === user.id)) throw forbidden();
 
-    res.json({ game: completedView(game as Parameters<typeof completedView>[0], user.id) });
+    const words = game.rounds.flatMap((round) => round.submissions.map((s) => s.word));
+    const images = Object.fromEntries(await readyImagesFor(words));
+
+    res.json({
+      game: completedView(game as Parameters<typeof completedView>[0], user.id, images),
+    });
   }),
 );

@@ -1,4 +1,7 @@
 import type { GameOutcome, GamePlayerStatus, GameStatus } from '@prisma/client';
+import type { WordImageView } from '../images/store.js';
+
+export type { WordImageView };
 
 export type ConnectionView = {
   /** 1 for the first group out of the circle, 2 for the next, and so on. */
@@ -74,6 +77,12 @@ export type GameStateView = {
   rounds: RoundView[];
   /** Every word already burned in this game, normalised. */
   playedWords: string[];
+  /**
+   * Pictures for words whose round has already revealed, keyed by the
+   * normalised word. Never contains the round in progress — an image for an
+   * unrevealed word would give it away.
+   */
+  images: Record<string, WordImageView>;
   /** The player left alone when the circle closed, if there was one. */
   wildcardId: string | null;
 };

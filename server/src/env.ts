@@ -14,6 +14,16 @@ const schema = z.object({
     .string()
     .min(32, 'JWT_SECRET must be at least 32 characters — generate one with `openssl rand -hex 32`'),
   CLIENT_ORIGIN: z.string().default('http://localhost:5173'),
+  /**
+   * Pixabay key for word images. Deliberately optional: with no key the image
+   * feature switches off and the game plays exactly as it does without it,
+   * which is also why no test ever needs a live key.
+   */
+  PIXABAY_API_KEY: z.string().trim().min(1).optional(),
+  /** Self-imposed ceiling, under Pixabay's documented 100 requests per minute. */
+  PIXABAY_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100).default(80),
+  /** Where downloaded image bytes live, relative to the server working directory. */
+  IMAGE_STORE_DIR: z.string().default('data/word-images'),
   COOKIE_SECURE: z
     .enum(['true', 'false'])
     .optional()
@@ -54,6 +64,8 @@ export const env = {
   ...raw,
   isProduction: raw.NODE_ENV === 'production',
   isTest: raw.NODE_ENV === 'test',
+  /** Word images are available only when a key is configured. */
+  imagesEnabled: Boolean(raw.PIXABAY_API_KEY),
   /** Multiple origins may be supplied as a comma-separated list. */
   allowedOrigins: raw.CLIENT_ORIGIN.split(',')
     .map((o) => o.trim())

@@ -10,6 +10,7 @@ build/
 
 # local data
 server/data/db.json
+server/data/word-images/
 server/prisma/*.db
 
 # os / editor

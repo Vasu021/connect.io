@@ -75,6 +75,17 @@ export type RoomInviteView = {
 
 /* ─── Game ────────────────────────────────────────────────────────────────── */
 
+export type WordImageView = {
+  id: string;
+  word: string;
+  photographer: string | null;
+  photographerUrl: string | null;
+  pageUrl: string | null;
+  tags: string | null;
+  width: number | null;
+  height: number | null;
+};
+
 export type ConnectionView = {
   placement: number;
   word: string;
@@ -128,6 +139,11 @@ export type GameStateView = {
   connections: ConnectionView[];
   rounds: RoundView[];
   playedWords: string[];
+  /**
+   * Pictures for revealed words only, keyed by the normalised word. The server
+   * never includes the round in progress — an image would give the word away.
+   */
+  images: Record<string, WordImageView>;
   wildcardId: string | null;
 };
 
@@ -197,6 +213,7 @@ export type RoundStartedPayload = {
 export type RoundRevealedPayload = {
   gameId: string;
   round: RoundView;
+  images: Record<string, WordImageView>;
   playedWords: string[];
   remaining: number;
   isFinal: boolean;
@@ -239,6 +256,11 @@ export type PresencePayload = {
   online: boolean;
   graceMs?: number;
   announced?: boolean;
+};
+
+export type WordImagePayload = {
+  gameId: string;
+  image: WordImageView;
 };
 
 export type RoomInvitedPayload = {

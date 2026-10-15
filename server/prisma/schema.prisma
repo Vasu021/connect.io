@@ -288,3 +288,51 @@ model Submission {
   @@index([gameId, normalized])
   @@index([userId])
 }
+
+enum WordImageStatus {
+  /// A fetch is in flight.
+  PENDING
+  /// Bytes are on disk and servable.
+  READY
+  /// Pixabay returned no hits for this word. Remembered so we never ask twice.
+  NONE
+  /// The fetch failed; `nextRetryAt` gates another attempt.
+  FAILED
+}
+
+/// One cached image per distinct word.
+///
+/// Keyed on the output of normalizeWord(), the same identity the game already
+/// uses for matching and the no-repeat rule, so "Ocean", "ocean " and "océan"
+/// share a single image and a single Pixabay request.
+///
+/// Pixabay forbids permanent hotlinking and its webformat URLs expire after 24
+/// hours, so the bytes are downloaded once and served from our own origin. That
+/// also keeps game history from rotting.
+model WordImage {
+  id              String          @id @default(uuid())
+  word            String          @unique
+  status          WordImageStatus @default(PENDING)
+  pixabayId       Int?
+  photographer    String?
+  photographerUrl String?
+  /// Links back to Pixabay, which their terms require whenever images show.
+  pageUrl         String?
+  /// Pixabay's tag list, used as alt text.
+  tags            String?
+  /// Relative to the image store directory.
+  filePath        String?
+  contentType     String?
+  width           Int?
+  height          Int?
+  bytes           Int?
+  attempts        Int             @default(0)
+  fetchedAt       DateTime?
+  /// Backs off retries for FAILED, and re-checks for NONE much later.
+  nextRetryAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([status])
+  @@index([nextRetryAt])
+}

@@ -3,7 +3,8 @@ import { Server } from 'socket.io';
 import { createApp } from './app.js';
 import { disconnectDb } from './db.js';
 import { env } from './env.js';
-import { restoreLiveGames, shutdownEngine } from './game/engine.js';
+import { attachImageUpdates, restoreLiveGames, shutdownEngine } from './game/engine.js';
+import { imagesAreEnabled } from './images/index.js';
 import { sweepStaleRooms } from './room/rooms.js';
 import { registerSocketServer } from './realtime/sockets.js';
 
@@ -28,6 +29,13 @@ const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 let sweepTimer: NodeJS.Timeout | null = null;
 
 async function start() {
+  attachImageUpdates();
+  console.log(
+    imagesAreEnabled()
+      ? 'word images: enabled'
+      : 'word images: disabled (no PIXABAY_API_KEY) — the game plays normally without them',
+  );
+
   const restored = await restoreLiveGames();
   if (restored > 0) console.log(`Restored ${restored} in-progress game(s).`);
 

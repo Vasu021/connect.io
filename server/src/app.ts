@@ -8,6 +8,7 @@ import { apiLimiter } from './lib/limits.js';
 import { authRouter } from './modules/auth.routes.js';
 import { friendsRouter } from './modules/friends.routes.js';
 import { gamesRouter } from './modules/games.routes.js';
+import { imagesRouter } from './modules/images.routes.js';
 import { roomsRouter } from './modules/rooms.routes.js';
 import { usersRouter } from './modules/users.routes.js';
 
@@ -49,6 +50,11 @@ export function createApp() {
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, service: 'connect.io' });
   });
+
+  // Mounted ahead of the general limiter on purpose: eight players loading
+  // image tags is a burst of cheap, cached file reads, and counting them
+  // against the API budget would throttle actual gameplay requests.
+  app.use('/api/images', imagesRouter);
 
   app.use('/api', apiLimiter);
   app.use('/api/auth', authRouter);

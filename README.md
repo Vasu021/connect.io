@@ -96,6 +96,7 @@ At two players, by the way, this is the original game untouched: you match, you 
 | **Join by code** | Six readable characters like `K7MW2P`. Invited players skip the password |
 | **Host controls** | Only the host starts, sets the round length (10–60s), and can remove players |
 | **Nothing to memorise** | Every word already said stays on screen, big and legible — beside whoever said it, under your word box, and in a full round log |
+| **A picture per word** | Revealed words get a small image from Pixabay, so the group's drift is something you can see. Never for the round in progress — that would give the word away |
 | **The live circle** | Chords snap between players the instant a Connection forms |
 | **Reconnect** | Drop out mid-game and you've got 30 seconds to get back before the circle moves on without you |
 | **Leaderboard** | Fastest circles, bucketed by player count, each group listed at its best |
@@ -123,6 +124,15 @@ Give it a real secret:
 cp server/.env.example server/.env
 echo "JWT_SECRET=\"$(openssl rand -hex 32)\"" >> server/.env
 ```
+
+Optionally, for pictures beside the words — grab a free key from
+[Pixabay](https://pixabay.com/api/docs/):
+
+```bash
+echo 'PIXABAY_API_KEY="your-key"' >> server/.env
+```
+
+Skip it and everything works, just without images.
 
 Then:
 
@@ -153,9 +163,15 @@ It's more fun with actual other people, but it's a very good way to watch the ci
 **Backend** Node · Express 5 · Socket.IO · Prisma · PostgreSQL · Zod
 **Security** httpOnly cookie sessions, bcrypt, Helmet, per-route rate limiting
 
+Word images come from Pixabay, fetched server-side the moment a word is
+submitted so they are ready at the reveal, cached per word so a repeat costs
+nothing, and downloaded to our own storage because Pixabay forbids hotlinking.
+With no API key configured the feature simply switches off and the game plays
+exactly as it otherwise would.
+
 Live game state lives in memory — fifteen-second rounds are a bad fit for polling a database — with Postgres as the durable mirror, so an in-progress game survives a server restart with its timers, its placements and its banned-word list intact.
 
-`npm test` runs **91 server tests**: the round engine, group formation and placement ordering, the no-repeat rule, scoring, abandonment, rooms and authorisation — including one that drives eight clients at once and checks nobody's pending word ever leaks into anybody else's state.
+`npm test` runs **108 server tests**: the round engine, group formation and placement ordering, the no-repeat rule, scoring, abandonment, rooms and authorisation — including one that drives eight clients at once and checks nobody's pending word ever leaks into anybody else's state.
 
 ---
 

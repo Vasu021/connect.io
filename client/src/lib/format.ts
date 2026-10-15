@@ -3,6 +3,18 @@
  * at once this matters: "demo1".."demo8" must not all render as "DE", and
  * neither must "demo_a" and "demo_b".
  */
+/**
+ * Must match normalizeWord() on the server — it is the key images are stored
+ * under, so a mismatch silently shows no picture.
+ */
+export function normalizeWord(word: string): string {
+  return word
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '');
+}
+
 export function initials(name: string): string {
   const parts = name.split(/[._\-\s]+/).filter(Boolean);
 

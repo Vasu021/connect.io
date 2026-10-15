@@ -6,9 +6,11 @@ import { Confetti } from '../components/Confetti';
 import { CountdownRing } from '../components/CountdownRing';
 import { PlayedWords } from '../components/PlayedWords';
 import { LastRound, RoundHistory } from '../components/RoundHistory';
+import { PixabayCredit, WordImage } from '../components/WordImage';
 import { Standings } from '../components/Standings';
 import { ApiError, api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { normalizeWord } from '../lib/format';
 import { ordinal, placementColor } from '../lib/placement';
 import { useSocket, useSocketEvent } from '../lib/socket';
 import { useToast } from '../lib/toasts';
@@ -21,6 +23,8 @@ import type {
   PresencePayload,
   RoundRevealedPayload,
   RoundStartedPayload,
+  WordImagePayload,
+  WordImageView,
 } from '../lib/types';
 
 /** Leave emits waiting out their grace window, keyed by game id. */
@@ -162,8 +166,18 @@ export default function GamePage() {
             ...current,
             rounds: [...current.rounds.filter((r) => r.roundNumber !== payload.round.roundNumber), payload.round],
             playedWords: payload.playedWords,
+            images: { ...current.images, ...payload.images },
             roundDeadline: null,
           }
+        : current,
+    );
+  });
+
+  useSocketEvent<WordImagePayload>('word:image', (payload) => {
+    if (payload.gameId !== gameId) return;
+    setState((current) =>
+      current
+        ? { ...current, images: { ...current.images, [payload.image.word]: payload.image } }
         : current,
     );
   });
@@ -362,6 +376,7 @@ export default function GamePage() {
             connections={state.connections}
             revealed={seatWords}
             wordsArePrevious={showingPreviousWords}
+            images={state.images}
             wildcardId={isOver ? state.wildcardId : null}
           >
             {isOver ? (
@@ -386,7 +401,12 @@ export default function GamePage() {
           </Circle>
 
           {isOver ? (
-            <Result ended={ended} players={state.players} redirectIn={redirectIn} />
+            <Result
+              ended={ended}
+              players={state.players}
+              redirectIn={redirectIn}
+              images={state.images}
+            />
           ) : state.status === 'WAITING' ? (
             <div className="status-line">Waiting for everyone to arrive…</div>
           ) : revealed ? (
@@ -407,7 +427,9 @@ export default function GamePage() {
                 {state.players.filter((p) => p.status === 'ACTIVE' && p.hasSubmitted).length} of{' '}
                 {state.activeCount} locked in
               </div>
-              {lastRound ? <LastRound round={lastRound} players={state.players} /> : null}
+              {lastRound ? (
+                <LastRound round={lastRound} players={state.players} images={state.images} />
+              ) : null}
             </div>
           ) : (
             <>
@@ -429,7 +451,11 @@ export default function GamePage() {
                   Lock in
                 </button>
               </form>
-              {lastRound ? <LastRound round={lastRound} players={state.players} /> : null}
+              {lastRound ? (
+                <LastRound round={lastRound} players={state.players} images={state.images} />
+              ) : null}
+
+              {Object.keys(state.images).length > 0 ? <PixabayCredit /> : null}
 
               <div className="status-line">
                 {alreadyPlayed ? (
@@ -574,10 +600,12 @@ function Result({
   ended,
   players,
   redirectIn,
+  images,
 }: {
   ended: GameEndedPayload;
   players: PlayerView[];
   redirectIn: number;
+  images: Record<string, WordImageView>;
 }) {
   const matched = ended.outcome === 'MATCHED' && ended.finalScore !== null;
   const nameOf = (id: string) => {
@@ -619,6 +647,7 @@ function Result({
               >
                 {connection.placement}
               </span>
+              <WordImage image={images[normalizeWord(connection.word)]} size="podium" />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div
                   className="podium-word"
@@ -658,6 +687,7 @@ function Result({
       <p className="redirect-note">
         The room is closed. Returning you home in {redirectIn}s.
       </p>
+      {Object.keys(images).length > 0 ? <PixabayCredit /> : null}
     </div>
   );
 }

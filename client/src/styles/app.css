@@ -1472,9 +1472,17 @@ input {
 }
 
 .circle-wrap {
+  /* Overridden per game by Circle.tsx, which sizes the pictures to how much
+     arc room the player count leaves. */
+  --seat-image-w: 72px;
+  --seat-image-h: 50px;
+  --seat-w: 130px;
+
   position: relative;
   width: 100%;
-  max-width: 520px;
+  /* Wider than it needs to be for the words alone: each seat now carries a
+     picture underneath, and eight of them must not collide. */
+  max-width: 600px;
   margin: 0 auto;
   aspect-ratio: 1;
 }
@@ -1550,7 +1558,7 @@ input {
   flex-direction: column;
   align-items: center;
   gap: 5px;
-  width: 130px;
+  width: var(--seat-w, 130px);
   transition:
     left 0.6s var(--ease-spring),
     top 0.6s var(--ease-spring),
@@ -1565,7 +1573,7 @@ input {
 .seat-name {
   font-size: 12.5px;
   font-weight: 600;
-  max-width: 130px;
+  max-width: var(--seat-w, 130px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1655,7 +1663,7 @@ input {
   border-radius: var(--r-pill);
   background: var(--surface-solid);
   border: 1px solid var(--border);
-  max-width: 130px;
+  max-width: var(--seat-w, 130px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2050,5 +2058,98 @@ input {
 
   .room-code-big {
     font-size: 22px;
+  }
+}
+
+/* ===========================================================================
+   Word images
+
+   Support, not subject. The word above keeps every bit of its emphasis; the
+   picture sits underneath, small and a little dimmed, and lifts on hover. If an
+   image is missing nothing renders at all — a broken frame reads worse than no
+   picture.
+   =========================================================================== */
+
+.word-image-link {
+  display: block;
+  line-height: 0;
+  border-radius: var(--r-sm);
+  text-decoration: none;
+}
+
+.word-image-link:hover {
+  text-decoration: none;
+}
+
+.word-image {
+  display: block;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  background: rgba(7, 9, 15, 0.6);
+  opacity: 0.85;
+  transition:
+    opacity 0.18s var(--ease-out),
+    transform 0.18s var(--ease-out);
+}
+
+.word-image-link:hover .word-image,
+.word-image:hover {
+  opacity: 1;
+  transform: scale(1.04);
+}
+
+.word-image-seat {
+  width: var(--seat-image-w, 72px);
+  height: var(--seat-image-h, 50px);
+}
+
+.word-image-chip {
+  width: 30px;
+  height: 24px;
+  /* Nudges the thumbnail onto the chip's text baseline. */
+  align-self: center;
+  margin-left: -4px;
+}
+
+.word-image-podium {
+  width: 64px;
+  height: 48px;
+  flex: none;
+}
+
+.pixabay-credit {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  text-decoration: none;
+}
+
+.pixabay-credit:hover {
+  color: var(--text-dim);
+  text-decoration: underline;
+}
+
+@media (max-width: 560px) {
+  /* The ring has no room for pictures at this width, exactly as it has none
+     for the word bubbles; the panel chips carry both instead. */
+  .word-image-seat {
+    display: none;
+  }
+
+  .word-image-chip {
+    width: 26px;
+    height: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .word-image {
+    transition: none;
+  }
+
+  .word-image-link:hover .word-image,
+  .word-image:hover {
+    transform: none;
   }
 }

@@ -1,5 +1,7 @@
+import { WordImage } from './WordImage';
+import { normalizeWord } from '../lib/format';
 import { placementColor } from '../lib/placement';
-import type { PlayerView, RoundView } from '../lib/types';
+import type { PlayerView, RoundView, WordImageView } from '../lib/types';
 
 /**
  * Every round, newest first, with who said what.
@@ -77,9 +79,11 @@ export function RoundHistory({
 export function LastRound({
   round,
   players,
+  images,
 }: {
   round: RoundView;
   players: PlayerView[];
+  images?: Record<string, WordImageView>;
 }) {
   if (round.submissions.length === 0) return null;
 
@@ -105,6 +109,7 @@ export function LastRound({
               .join(' ')}
             key={submission.userId}
           >
+            <WordImage image={images?.[normalizeWord(submission.word)]} size="chip" />
             <b>{submission.word}</b>
             <span>{nameOf(submission.userId)}</span>
           </span>

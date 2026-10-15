@@ -24,7 +24,7 @@ safe to generalise. Full rules in `GAME.md`.
 ## Stack
 
 npm workspaces: `client` (React 19, Vite 7, React Router 7) and `server` (Node,
-Express 5, Socket.IO 4, Prisma 6 → Postgres 16, Zod 4). 91 vitest tests, server
+Express 5, Socket.IO 4, Prisma 6 → Postgres 16, Zod 4). 108 vitest tests, server
 side only.
 
 Architecture is in `DEVELOPMENT_GUIDE.md`. Open work is in `TASKS.md`.
@@ -63,36 +63,56 @@ clean; keep them that way.
    subordinate to a live reveal and that was wrong: reading them is the task, so
    they win. The dashed border is the only "this is last round" signal needed.
 
-3. **The no-repeat rule is load-bearing, not a nicety.** Every normalised word
+3. **An image for an unrevealed word *is* that word.** Word images follow the
+   same boundary as words: the server prefetches on submit (safe — nothing
+   leaves the server), but an image only enters a client payload once its round
+   has revealed. `attachImageUpdates()` uses `game.bannedWords.has(word)` as the
+   "revealed" test, because a word lands there only when its round resolved.
+   There is a test that holds a round open and asserts zero image elements and
+   zero `/api/images` requests while the server already has them cached.
+
+4. **Nothing in the game loop may await an image.** `requestImage()` is
+   fire-and-forget. If Pixabay is slow, down, throttled or unconfigured, play is
+   identical minus the pictures — there is a test for that too.
+
+5. **The no-repeat rule is load-bearing, not a nicety.** Every normalised word
    ever submitted in a game is banned for the rest of it. Without it the
    dominant strategy is "copy the plurality word from last round" and every game
    resolves at round 2. The ban set must survive a restart — `restoreLiveGames()`
    rebuilds it from `Submission.normalized`.
 
-4. **Placement order must be deterministic.** `groupSubmissions()` sorts groups
+6. **Placement order must be deterministic.** `groupSubmissions()` sorts groups
    by normalised word so that when several form in one round their placements do
    not depend on packet arrival order.
 
-5. **`JWT_SECRET` has no fallback.** The server exits if it is missing or under
+7. **`JWT_SECRET` has no fallback.** The server exits if it is missing or under
    32 characters. Never add a default.
 
-6. **The session is an httpOnly cookie.** No token in localStorage, no
+8. **The session is an httpOnly cookie.** No token in localStorage, no
    `Authorization: Bearer` path. Socket.IO authenticates from the same cookie.
 
-7. **Friendship does not gate play.** Anyone can be invited to a room. Friends
+9. **Friendship does not gate play.** Anyone can be invited to a room. Friends
    only drive the invite list and presence. Do not reintroduce `areFriends()` as
    a precondition for playing.
 
-8. **A room's existence is not disclosed.** A wrong password and an unknown code
+10. **A room's existence is not disclosed.** A wrong password and an unknown code
    both return the same 404. Non-members get 404 from `GET /api/rooms/:id`.
 
-9. **Friendships are stored ordered** (`user1Id < user2Id`). Always use
+11. **Friendships are stored ordered** (`user1Id < user2Id`). Always use
    `orderPair()` from `server/src/lib/friends.ts`.
 
-10. **Never return another user's email.** `/api/users/search` returns id and
+12. **Never return another user's email.** `/api/users/search` returns id and
     username only.
 
-11. **Every timer must be cleared when a game ends.** `clearTimers()` covers
+13. **`resolveRound()` must never run twice for one round.** Two players can
+    submit in the same tick: each awaits its persist, each then sees a full
+    round, and both call it. The `resolving` flag is set **synchronously before
+    any await** for exactly that reason — moving it after one reopens the race,
+    which double-counts idle players before the unique index on
+    `(gameId, roundNumber)` rejects the duplicate. Covered by "resolves a round
+    exactly once when everyone submits at the same instant".
+
+14. **Every timer must be cleared when a game ends.** `clearTimers()` covers
     `roundTimer`, `nextRoundTimer`, `startGraceTimer`, `graceTimers` and
     `announceTimers`.
 
@@ -132,6 +152,18 @@ clean; keep them that way.
 - **Test words must be letters only.** `validateWord()` rejects digits, so
   `alpha1` silently submits nothing — which once made a test pass for entirely
   the wrong reason.
+- **`/api/images` is mounted ahead of `apiLimiter` on purpose.** Eight players
+  loading image tags is a burst of cheap cached file reads; counting them
+  against the API budget would throttle actual gameplay. Do not move it below
+  the limiter.
+- **Never hotlink Pixabay.** Their terms forbid it and their URLs expire after
+  24 hours, so bytes are downloaded to `IMAGE_STORE_DIR` and served by us.
+  Attribution (photographer + link back) must stay visible wherever images show.
+- **Seat image size scales with player count** (2× at 2–4 players, 1.5× at 5,
+  1× at 6–8) via CSS variables set in `Circle.tsx`. Bigger pictures make seats
+  taller, so the ring radius tightens to match — otherwise the top seat
+  overflows the card and the bottom one lands on the word box. The browser
+  harness checks containment as well as collisions at every player count.
 - **Seat width and word size are coupled.** `.seat` width, `.seat-word`
   `font-size` and its `max-width` must move together: a bigger font without a
   wider seat silently truncates words, and a wider seat risks seats colliding at

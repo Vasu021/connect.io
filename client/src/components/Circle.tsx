@@ -1,10 +1,36 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Avatar } from './Avatar';
+import { WordImage } from './WordImage';
+import { normalizeWord } from '../lib/format';
 import { placementColor, seatPosition } from '../lib/placement';
-import type { ConnectionView, PlayerView } from '../lib/types';
+import type { ConnectionView, PlayerView, WordImageView } from '../lib/types';
 
-/** Players still in the circle sit further out than the ones who have left it. */
-const RADIUS_ACTIVE = 40;
+/**
+ * How large a seat's picture can be, by how many players are on the ring.
+ * A four-player circle has arc room to spare; an eight-player one does not.
+ */
+const SEAT_IMAGE_BASE = { width: 72, height: 50 };
+
+function imageScaleFor(playerCount: number): number {
+  if (playerCount <= 4) return 2;
+  if (playerCount === 5) return 1.5;
+  return 1;
+}
+
+/**
+ * Players still in the circle sit further out than the ones who have left it.
+ *
+ * A seat carrying a double-size picture is roughly 200px tall, so at the usual
+ * radius the top one overflows the card and the bottom one lands on the word
+ * box. Bigger pictures therefore sit on a tighter ring — there is room to spare
+ * at four players, which is exactly when the pictures are largest.
+ */
+function radiusFor(scale: number): number {
+  if (scale >= 2) return 33;
+  if (scale > 1) return 35;
+  return 40;
+}
+
 const RADIUS_CONNECTED = 26;
 /** Where a connection's chords meet. */
 const RADIUS_HUB = 15;
@@ -21,6 +47,8 @@ type Props = {
    */
   wordsArePrevious?: boolean;
   wildcardId?: string | null;
+  /** Pictures for revealed words, keyed by normalised word. */
+  images?: Record<string, WordImageView>;
   children?: ReactNode;
 };
 
@@ -30,12 +58,16 @@ export function Circle({
   revealed,
   wordsArePrevious = false,
   wildcardId,
+  images,
   children,
 }: Props) {
   const total = players.length;
 
+  const scale = imageScaleFor(total);
+  const activeRadius = radiusFor(scale);
+
   const positionOf = (player: PlayerView) => {
-    const radius = player.status === 'CONNECTED' ? RADIUS_CONNECTED : RADIUS_ACTIVE;
+    const radius = player.status === 'CONNECTED' ? RADIUS_CONNECTED : activeRadius;
     return seatPosition(player.seat, total, radius);
   };
 
@@ -68,10 +100,21 @@ export function Circle({
     };
   });
 
+  const imageWidth = Math.round(SEAT_IMAGE_BASE.width * scale);
+  const imageHeight = Math.round(SEAT_IMAGE_BASE.height * scale);
+  // The seat has to be at least as wide as the picture it carries.
+  const seatWidth = Math.max(130, imageWidth + 8);
+
+  const sizing = {
+    '--seat-image-w': `${imageWidth}px`,
+    '--seat-image-h': `${imageHeight}px`,
+    '--seat-w': `${seatWidth}px`,
+  } as CSSProperties;
+
   return (
-    <div className="circle-wrap">
+    <div className="circle-wrap" style={sizing}>
       <svg className="circle-rings" viewBox="0 0 100 100" aria-hidden="true">
-        <circle className="circle-ring-outer" cx="50" cy="50" r={RADIUS_ACTIVE} />
+        <circle className="circle-ring-outer" cx="50" cy="50" r={activeRadius} />
         <circle className="circle-ring-inner" cx="50" cy="50" r={RADIUS_CONNECTED} />
 
         {hubs.map((hub) =>
@@ -179,6 +222,8 @@ export function Circle({
                 <i />
               </span>
             ) : null}
+
+            {word ? <WordImage image={images?.[normalizeWord(word.word)]} size="seat" /> : null}
           </div>
         );
       })}
