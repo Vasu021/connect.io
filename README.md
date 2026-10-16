@@ -54,6 +54,15 @@ The player left alone is the **Wildcard** — nobody else was in that head. It's
 
 ---
 
+<img width="1710" height="955" alt="image" src="https://github.com/user-attachments/assets/b6958329-1392-44a8-b5f7-0eeae5c030c0" />
+
+<img width="1280" height="718" alt="image" src="https://github.com/user-attachments/assets/619ae18c-8891-4d48-8f7d-3f5cea8db1e3" />
+
+<img width="1280" height="718" alt="image" src="https://github.com/user-attachments/assets/d3146a68-577d-40e6-aba6-6eb4d9266472" />
+
+
+---
+
 ## Where it gets hard
 
 Here's the rule that turns this from a coin flip into a game:
