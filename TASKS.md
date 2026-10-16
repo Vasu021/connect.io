@@ -70,6 +70,7 @@ Status of the build, and what is worth doing next.
 - [x] Auto-return to the dashboard once the room is gone
 - [x] Avatar initials that actually distinguish `demo1`…`demo8`
 - [x] Responsive to 390px; `prefers-reduced-motion` respected
+- [x] A "Made by Vasu" signature with GitHub and LinkedIn links
 
 ### Data and API
 - [x] Schema rebuilt for N players: Room, RoomMember, RoomInvite, Game,

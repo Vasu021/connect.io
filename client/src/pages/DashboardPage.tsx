@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { Link, useNavigate } from 'react-router-dom';
 import { Avatar, OnlineDot } from '../components/Avatar';
 import { Brand } from '../components/Brand';
+import { MadeBy } from '../components/MadeBy';
 import { ApiError, api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -767,6 +768,8 @@ export default function DashboardPage() {
           )}
         </section>
       </div>
+
+      <MadeBy />
     </div>
   );
 }

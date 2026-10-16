@@ -1361,9 +1361,21 @@ input {
 
 /* ─── Auth ───────────────────────────────────────────────────────────────── */
 
-.auth-card {
+.auth-stack {
   width: min(430px, 100%);
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-card {
+  width: 100%;
   padding: 30px 28px;
+}
+
+/* The signature already carries its own top margin on the long pages; under a
+   sign-in card it only needs a little. */
+.auth-stack .made-by {
+  margin-top: 22px;
 }
 
 .auth-tagline {
@@ -2314,4 +2326,36 @@ input {
   .avatar-option:hover {
     transform: none;
   }
+}
+
+/* ===========================================================================
+   Signature
+   =========================================================================== */
+
+.made-by {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 40px;
+  padding-bottom: 8px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.made-by a {
+  display: inline-flex;
+  color: var(--text-faint);
+  transition: color 0.16s var(--ease-out);
+}
+
+.made-by a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.made-by svg {
+  width: 17px;
+  height: 17px;
+  display: block;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Brand } from '../components/Brand';
+import { MadeBy } from '../components/MadeBy';
 import { Standings } from '../components/Standings';
 import { ApiError, api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -181,6 +182,8 @@ export default function HistoryPage() {
           })}
         </div>
       )}
+
+      <MadeBy />
     </div>
   );
 }

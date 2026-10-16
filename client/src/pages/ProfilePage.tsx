@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Avatar, OnlineDot } from '../components/Avatar';
 import { ANIMALS, AVATAR_IDS, type AvatarId } from '../components/AnimalAvatar';
 import { Brand } from '../components/Brand';
+import { MadeBy } from '../components/MadeBy';
 import { ApiError, api } from '../lib/api';
 import { useToast } from '../lib/toasts';
 import { useAuth } from '../lib/auth';
@@ -215,6 +216,8 @@ export default function ProfilePage() {
           </section>
         </div>
       )}
+
+      <MadeBy />
     </div>
   );
 }
