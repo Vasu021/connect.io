@@ -68,7 +68,7 @@ connect.io/
 │  │  │  └─ hub.ts             Holds io; emit helpers (avoids import cycles)
 │  │  ├─ modules/*.routes.ts   auth / users / friends / rooms / games / images
 │  │  └─ lib/                  auth, errors, limits, validation, friends, codes
-│  └─ tests/                   114 tests: unit + API + socket end-to-end
+│  └─ tests/                   116 tests: unit + API + socket end-to-end
 └─ client/
    ├─ src/
    │  ├─ lib/                  api, auth, socket, types, format, placement
@@ -370,7 +370,8 @@ eight players. The browser harness measures every seat pair for overlap using
 deliberately long words, so changes here are checkable rather than guessed at.
 
 **Avatars** are a fixed set of SVG animal faces (`AnimalAvatar.tsx`), chosen on
-your own profile and shown wherever a player appears. A fixed set rather than
+your own profile and shown wherever a player appears. Registration assigns one
+at random so nobody's first impression of themselves is a grey monogram. A fixed set rather than
 uploads means nothing to moderate and nothing to store, and `server/src/lib/
 avatars.ts` is the authority — an id without a matching drawing falls back to
 initials.

@@ -24,7 +24,7 @@ safe to generalise. Full rules in `GAME.md`.
 ## Stack
 
 npm workspaces: `client` (React 19, Vite 7, React Router 7) and `server` (Node,
-Express 5, Socket.IO 4, Prisma 6 → Postgres 16, Zod 4). 114 vitest tests, server
+Express 5, Socket.IO 4, Prisma 6 → Postgres 16, Zod 4). 116 vitest tests, server
 side only.
 
 Architecture is in `DEVELOPMENT_GUIDE.md`. Open work is in `TASKS.md`.
@@ -152,6 +152,10 @@ clean; keep them that way.
 - **Test words must be letters only.** `validateWord()` rejects digits, so
   `alpha1` silently submits nothing — which once made a test pass for entirely
   the wrong reason.
+- **A new account is given a random animal**, not initials — the first thing
+  you see of yourself should not be a grey monogram. `randomAvatarId()` in
+  `server/src/lib/avatars.ts`; initials remain a valid state for anyone who
+  picks "use initials".
 - **Avatars are a fixed set, never uploads.** `server/src/lib/avatars.ts` is the
   source of truth and the client has a matching drawing per id in
   `AnimalAvatar.tsx`. No uploads means nothing to moderate, nothing to store,

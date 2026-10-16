@@ -481,11 +481,39 @@ describe('rooms', () => {
 });
 
 describe('avatars', () => {
-  it('starts with none and accepts a preset', async () => {
-    const user = await client.register('avatarA');
+  it('gives a new account an animal rather than a grey monogram', async () => {
+    const catalogue = await client.get('/api/users/avatars', (await client.register('avatarZ')).cookie);
+    const presets = catalogue.body.avatars as string[];
 
-    const before = await client.get('/api/auth/me', user.cookie);
-    expect((before.body.user as { avatar: string | null }).avatar).toBeNull();
+    const response = await fetch(`${server.baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'freshling',
+        email: 'freshling@example.com',
+        password: 'a-very-good-password',
+      }),
+    });
+
+    const body = (await response.json()) as { user: { avatar: string | null } };
+    expect(response.status).toBe(201);
+    expect(body.user.avatar).not.toBeNull();
+    expect(presets).toContain(body.user.avatar);
+  });
+
+  it('does not hand everybody the same animal', async () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 10; i += 1) {
+      const user = await client.register(`randomAv${i}`);
+      const me = await client.get('/api/auth/me', user.cookie);
+      seen.add((me.body.user as { avatar: string }).avatar);
+    }
+    // Ten draws from twelve landing on one value is about one in ten billion.
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it('accepts a preset in place of the one you were given', async () => {
+    const user = await client.register('avatarA');
 
     const set = await client.post('/api/users/me/avatar', { avatar: 'giraffe' }, user.cookie);
     expect(set.status).toBe(200);

@@ -9,6 +9,7 @@ import {
 } from '../lib/auth.js';
 import { conflict, unauthorized, wrap } from '../lib/errors.js';
 import { loginLimiter, registerLimiter } from '../lib/limits.js';
+import { randomAvatarId } from '../lib/avatars.js';
 import { loginSchema, registerSchema } from '../lib/validation.js';
 
 export const authRouter = Router();
@@ -49,6 +50,8 @@ authRouter.post(
         usernameLower,
         email,
         passwordHash: await hash(password, BCRYPT_COST),
+        // Everyone starts with a face rather than a grey monogram.
+        avatar: randomAvatarId(),
       },
       select: { id: true, username: true, email: true, avatar: true, createdAt: true },
     });

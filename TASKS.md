@@ -48,6 +48,7 @@ Status of the build, and what is worth doing next.
 - [x] Twelve hand-drawn animal avatars, chosen from a fixed set — no uploads,
       so nothing to moderate or store
 - [x] Picked on your own profile, shown everywhere a player appears
+- [x] A new account is given one at random, so nobody starts as a grey monogram
 - [x] Eyes blink; an unknown id falls back to initials
 
 ### Interface
@@ -80,7 +81,7 @@ Status of the build, and what is worth doing next.
 - [x] History with the full round-by-round trail
 
 ### Foundation
-- [x] 114 server tests, including eight-player secrecy tests for words and images
+- [x] 116 server tests, including eight-player secrecy tests for words and images
 - [x] Fixed a double-resolve race when players submitted in the same tick
 - [x] Dashboard refetches coalesced — eight players no longer trip the limiter
 - [x] `npm audit` clean, transitive patches pinned via overrides
