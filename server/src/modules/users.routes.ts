@@ -4,10 +4,34 @@ import { type AuthedRequest, requireAuth } from '../lib/auth.js';
 import { notFound, wrap } from '../lib/errors.js';
 import { friendIdsOf } from '../lib/friends.js';
 import { searchLimiter } from '../lib/limits.js';
-import { idParamSchema, searchSchema } from '../lib/validation.js';
+import { avatarSchema, idParamSchema, searchSchema } from '../lib/validation.js';
+import { AVATAR_IDS } from '../lib/avatars.js';
 import { presence } from '../realtime/presence.js';
 
 export const usersRouter = Router();
+
+/** The avatars anyone may choose. Public so the picker cannot drift from the server. */
+usersRouter.get('/avatars', (_req, res) => {
+  res.json({ avatars: AVATAR_IDS });
+});
+
+/** Pick one of the presets, or null to go back to initials. */
+usersRouter.post(
+  '/me/avatar',
+  requireAuth,
+  wrap(async (req, res) => {
+    const { user } = req as AuthedRequest;
+    const { avatar } = avatarSchema.parse(req.body);
+
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { avatar },
+      select: { id: true, username: true, email: true, avatar: true, createdAt: true },
+    });
+
+    res.json({ user: updated });
+  }),
+);
 
 type Relationship = 'self' | 'friend' | 'request_sent' | 'request_received' | 'none';
 
@@ -32,7 +56,7 @@ usersRouter.get(
 
     const matches = await prisma.user.findMany({
       where: { usernameLower: { contains: q }, id: { not: user.id } },
-      select: { id: true, username: true },
+      select: { id: true, username: true, avatar: true },
       orderBy: [{ usernameLower: 'asc' }],
       take: 15,
     });
@@ -69,6 +93,7 @@ usersRouter.get(
       return {
         id: match.id,
         username: match.username,
+        avatar: match.avatar,
         online: presence.isOnline(match.id),
         relationship,
         requestId: received.get(match.id) ?? sent.get(match.id) ?? null,
@@ -91,7 +116,7 @@ usersRouter.get(
 
     const user = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, username: true, createdAt: true },
+      select: { id: true, username: true, avatar: true, createdAt: true },
     });
     if (!user) throw notFound('No such player');
 
@@ -135,20 +160,26 @@ usersRouter.get(
           select: {
             userId: true,
             connectedAtRound: true,
-            user: { select: { id: true, username: true } },
+            user: { select: { id: true, username: true, avatar: true } },
           },
         })
       : [];
 
     const partners = new Map<
       string,
-      { id: string; username: string; times: number; fastest: number | null }
+      { id: string; username: string; avatar: string | null; times: number; fastest: number | null }
     >();
 
     for (const row of partnerRows) {
       const entry =
         partners.get(row.userId) ??
-        { id: row.user.id, username: row.user.username, times: 0, fastest: null };
+        {
+          id: row.user.id,
+          username: row.user.username,
+          avatar: row.user.avatar,
+          times: 0,
+          fastest: null,
+        };
       entry.times += 1;
       if (row.connectedAtRound !== null) {
         entry.fastest =

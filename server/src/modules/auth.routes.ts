@@ -50,7 +50,7 @@ authRouter.post(
         email,
         passwordHash: await hash(password, BCRYPT_COST),
       },
-      select: { id: true, username: true, email: true, createdAt: true },
+      select: { id: true, username: true, email: true, avatar: true, createdAt: true },
     });
 
     setSessionCookie(res, { id: user.id, username: user.username });
@@ -80,6 +80,7 @@ authRouter.post(
         id: user.id,
         username: user.username,
         email: user.email,
+        avatar: user.avatar,
         createdAt: user.createdAt,
       },
     });
@@ -98,7 +99,7 @@ authRouter.get(
     const { user: session } = req as AuthedRequest;
     const user = await prisma.user.findUnique({
       where: { id: session.id },
-      select: { id: true, username: true, email: true, createdAt: true },
+      select: { id: true, username: true, email: true, avatar: true, createdAt: true },
     });
 
     // Token is valid but the account is gone (deleted between requests).

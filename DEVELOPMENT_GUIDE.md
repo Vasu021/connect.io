@@ -68,7 +68,7 @@ connect.io/
 │  │  │  └─ hub.ts             Holds io; emit helpers (avoids import cycles)
 │  │  ├─ modules/*.routes.ts   auth / users / friends / rooms / games / images
 │  │  └─ lib/                  auth, errors, limits, validation, friends, codes
-│  └─ tests/                   108 tests: unit + API + socket end-to-end
+│  └─ tests/                   114 tests: unit + API + socket end-to-end
 └─ client/
    ├─ src/
    │  ├─ lib/                  api, auth, socket, types, format, placement
@@ -368,6 +368,17 @@ Seat geometry constrains this: `.seat` width, `.seat-word` font size and its
 `max-width` move together, and widening them too far makes seats collide at
 eight players. The browser harness measures every seat pair for overlap using
 deliberately long words, so changes here are checkable rather than guessed at.
+
+**Avatars** are a fixed set of SVG animal faces (`AnimalAvatar.tsx`), chosen on
+your own profile and shown wherever a player appears. A fixed set rather than
+uploads means nothing to moderate and nothing to store, and `server/src/lib/
+avatars.ts` is the authority — an id without a matching drawing falls back to
+initials.
+
+**The dashboard is columns, not auto-fit.** Its cards differ wildly in height,
+and a plain grid sizes each row to its tallest card, which left large holes under
+the short ones. `.dash-col` groups them by purpose — actions, people, you — each
+flowing top to bottom, with the leaderboard full width beneath.
 
 **Long lists scroll in place.** `.rows-scroll` caps a list at ~324px with
 `overscroll-behavior: contain`. Search results, the friends list and the lobby's

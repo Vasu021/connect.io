@@ -28,6 +28,7 @@ export type RoundView = {
 export type PlayerView = {
   id: string;
   username: string;
+  avatar: string | null;
   online: boolean;
   isYou: boolean;
   status: GamePlayerStatus;
@@ -90,6 +91,7 @@ export type GameStateView = {
 export type RoomMemberView = {
   id: string;
   username: string;
+  avatar: string | null;
   online: boolean;
   isHost: boolean;
   isYou: boolean;

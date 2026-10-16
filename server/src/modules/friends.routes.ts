@@ -24,8 +24,8 @@ friendsRouter.get(
       where: { OR: [{ user1Id: user.id }, { user2Id: user.id }] },
       select: {
         createdAt: true,
-        user1: { select: { id: true, username: true } },
-        user2: { select: { id: true, username: true } },
+        user1: { select: { id: true, username: true, avatar: true } },
+        user2: { select: { id: true, username: true, avatar: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -36,6 +36,7 @@ friendsRouter.get(
         return {
           id: friend.id,
           username: friend.username,
+          avatar: friend.avatar,
           online: presence.isOnline(friend.id),
           friendsSince: row.createdAt,
         };
@@ -58,7 +59,7 @@ friendsRouter.get(
         select: {
           id: true,
           createdAt: true,
-          fromUser: { select: { id: true, username: true } },
+          fromUser: { select: { id: true, username: true, avatar: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -67,7 +68,7 @@ friendsRouter.get(
         select: {
           id: true,
           createdAt: true,
-          toUser: { select: { id: true, username: true } },
+          toUser: { select: { id: true, username: true, avatar: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),

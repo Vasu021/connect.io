@@ -227,7 +227,11 @@ export default function RoomPage() {
           <div className="seat-slots">
             {room.members.map((member) => (
               <div className="seat-slot" key={member.id}>
-                <Avatar username={member.username} side={member.isYou ? 'you' : 'them'} />
+                <Avatar
+                  username={member.username}
+                  avatar={member.avatar}
+                  side={member.isYou ? 'you' : 'them'}
+                />
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div className="seat-slot-name">
                     {member.isYou ? 'you' : `@${member.username}`}
@@ -352,7 +356,7 @@ export default function RoomPage() {
                 return (
                   <div className="list-row" key={person.id}>
                     <div className="row-main">
-                      <Avatar username={person.username} />
+                      <Avatar username={person.username} avatar={person.avatar} />
                       <div className="row-label">
                         <div className="row-name row">
                           <OnlineDot online={person.online} />

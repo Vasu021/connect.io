@@ -7,12 +7,15 @@ export type User = {
   id: string;
   username: string;
   email: string;
+  /** One of the preset animal ids, or null for initials. */
+  avatar: string | null;
   createdAt: string;
 };
 
 export type Friend = {
   id: string;
   username: string;
+  avatar: string | null;
   online: boolean;
   friendsSince: string;
 };
@@ -22,6 +25,7 @@ export type Relationship = 'self' | 'friend' | 'request_sent' | 'request_receive
 export type SearchResult = {
   id: string;
   username: string;
+  avatar: string | null;
   online: boolean;
   relationship: Relationship;
   requestId: string | null;
@@ -30,7 +34,7 @@ export type SearchResult = {
 export type FriendRequestView = {
   id: string;
   createdAt: string;
-  user: { id: string; username: string; online: boolean };
+  user: { id: string; username: string; avatar: string | null; online: boolean };
 };
 
 /* ─── Rooms ───────────────────────────────────────────────────────────────── */
@@ -38,6 +42,7 @@ export type FriendRequestView = {
 export type RoomMemberView = {
   id: string;
   username: string;
+  avatar: string | null;
   online: boolean;
   isHost: boolean;
   isYou: boolean;
@@ -109,6 +114,7 @@ export type RoundView = {
 export type PlayerView = {
   id: string;
   username: string;
+  avatar: string | null;
   online: boolean;
   isYou: boolean;
   status: PlayerStatus;
@@ -197,7 +203,13 @@ export type PlayerStats = {
   perfectCircles: number;
   wildcards: number;
   unfinished: number;
-  topPartners: { id: string; username: string; times: number; fastest: number | null }[];
+  topPartners: {
+    id: string;
+    username: string;
+    avatar: string | null;
+    times: number;
+    fastest: number | null;
+  }[];
 };
 
 /* ─── Socket payloads ─────────────────────────────────────────────────────── */

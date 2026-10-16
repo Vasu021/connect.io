@@ -480,6 +480,67 @@ describe('rooms', () => {
   });
 });
 
+describe('avatars', () => {
+  it('starts with none and accepts a preset', async () => {
+    const user = await client.register('avatarA');
+
+    const before = await client.get('/api/auth/me', user.cookie);
+    expect((before.body.user as { avatar: string | null }).avatar).toBeNull();
+
+    const set = await client.post('/api/users/me/avatar', { avatar: 'giraffe' }, user.cookie);
+    expect(set.status).toBe(200);
+    expect((set.body.user as { avatar: string }).avatar).toBe('giraffe');
+
+    const after = await client.get('/api/auth/me', user.cookie);
+    expect((after.body.user as { avatar: string }).avatar).toBe('giraffe');
+  });
+
+  it('refuses anything that is not a preset', async () => {
+    const user = await client.register('avatarB');
+    // No uploads and no free text: the set is fixed, so there is nothing to
+    // moderate and nothing unpleasant can end up beside a name.
+    for (const bad of ['dragon', '<script>', '', 42, { id: 'cat' }]) {
+      const result = await client.post('/api/users/me/avatar', { avatar: bad }, user.cookie);
+      expect(result.status).toBe(400);
+    }
+  });
+
+  it('lets you go back to initials', async () => {
+    const user = await client.register('avatarC');
+    await client.post('/api/users/me/avatar', { avatar: 'cat' }, user.cookie);
+
+    const cleared = await client.post('/api/users/me/avatar', { avatar: null }, user.cookie);
+    expect(cleared.status).toBe(200);
+    expect((cleared.body.user as { avatar: string | null }).avatar).toBeNull();
+  });
+
+  it('shows a chosen avatar to other players', async () => {
+    const a = await client.register('avatarD');
+    const b = await client.register('avatarE');
+    await client.post('/api/users/me/avatar', { avatar: 'panda' }, b.cookie);
+    await client.befriend(a, b);
+
+    const search = await client.get('/api/users/search?q=avatarE', a.cookie);
+    expect((search.body.users as { avatar: string }[])[0]?.avatar).toBe('panda');
+
+    const friends = await client.get('/api/friends', a.cookie);
+    expect((friends.body.friends as { avatar: string }[])[0]?.avatar).toBe('panda');
+  });
+
+  it('needs a session to change', async () => {
+    const result = await client.post('/api/users/me/avatar', { avatar: 'cat' });
+    expect(result.status).toBe(401);
+  });
+
+  it('publishes the catalogue so the picker cannot drift', async () => {
+    const user = await client.register('avatarF');
+    const result = await client.get('/api/users/avatars', user.cookie);
+    expect(result.status).toBe(200);
+    expect(result.body.avatars).toContain('giraffe');
+    expect((result.body.avatars as string[]).length).toBeGreaterThanOrEqual(12);
+  });
+});
+
 describe('hardening', () => {
   it('serves health without auth', async () => {
     const result = await client.get('/api/health');

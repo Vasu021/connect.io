@@ -35,7 +35,7 @@ const finishedGameSelect = {
       status: true,
       placement: true,
       connectedAtRound: true,
-      user: { select: { id: true, username: true } },
+      user: { select: { id: true, username: true, avatar: true } },
     },
     orderBy: { joinedAt: 'asc' },
   },
@@ -136,6 +136,7 @@ function completedView(
     players: game.players.map((player, index) => ({
       id: player.userId,
       username: player.user.username,
+      avatar: player.user.avatar,
       online: online.has(player.userId),
       isYou: player.userId === viewerId,
       status: player.status,

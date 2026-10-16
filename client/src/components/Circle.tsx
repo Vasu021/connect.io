@@ -173,6 +173,7 @@ export function Circle({
             <span className="seat-avatar">
               <Avatar
                 username={player.username}
+                avatar={player.avatar}
                 side={player.isYou ? 'you' : 'them'}
               />
 

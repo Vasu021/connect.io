@@ -73,6 +73,8 @@ model User {
   usernameLower String   @unique
   email         String   @unique
   passwordHash  String
+  /// One of the preset animal avatars. Null means fall back to initials.
+  avatar        String?
   createdAt     DateTime @default(now())
 
   sentRequests     FriendRequest[] @relation("RequestFrom")

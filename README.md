@@ -101,7 +101,7 @@ At two players, by the way, this is the original game untouched: you match, you 
 | **Reconnect** | Drop out mid-game and you've got 30 seconds to get back before the circle moves on without you |
 | **Leaderboard** | Fastest circles, bucketed by player count, each group listed at its best |
 | **History** | Every finished game, word by word |
-| **Profile** | Best circle, average placement, and the people you connect with fastest |
+| **Profile** | Best circle, average placement, the people you connect with fastest — and a cat, a giraffe or a koala to put beside your name |
 
 ---
 
@@ -171,7 +171,7 @@ exactly as it otherwise would.
 
 Live game state lives in memory — fifteen-second rounds are a bad fit for polling a database — with Postgres as the durable mirror, so an in-progress game survives a server restart with its timers, its placements and its banned-word list intact.
 
-`npm test` runs **108 server tests**: the round engine, group formation and placement ordering, the no-repeat rule, scoring, abandonment, rooms and authorisation — including one that drives eight clients at once and checks nobody's pending word ever leaks into anybody else's state.
+`npm test` runs **114 server tests**: the round engine, group formation and placement ordering, the no-repeat rule, scoring, abandonment, rooms and authorisation — including one that drives eight clients at once and checks nobody's pending word ever leaks into anybody else's state.
 
 ---
 

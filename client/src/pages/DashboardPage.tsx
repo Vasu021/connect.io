@@ -291,7 +291,9 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <div className="dashboard-grid">
+      <div className="dash">
+        {/* Actions: start or resume a game. */}
+        <div className="dash-col">
         {/* ── Play ─────────────────────────────────────────────────────── */}
         <section className="card card-accent-you">
           <div className="card-head">
@@ -426,7 +428,10 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
+        </div>
 
+        {/* People: who you can play with, and who wants to. */}
+        <div className="dash-col">
         {/* ── Friends ──────────────────────────────────────────────────── */}
         <section className="card">
           <div className="card-head">
@@ -445,7 +450,7 @@ export default function DashboardPage() {
               {friends.map((friend) => (
                 <div className="list-row" key={friend.id}>
                   <div className="row-main">
-                    <Avatar username={friend.username} />
+                    <Avatar username={friend.username} avatar={friend.avatar} />
                     <div className="row-label">
                       <div className="row-name row">
                         <OnlineDot online={friend.online} />
@@ -504,7 +509,7 @@ export default function DashboardPage() {
             {results.map((result) => (
               <div className="list-row" key={result.id}>
                 <div className="row-main">
-                  <Avatar username={result.username} />
+                  <Avatar username={result.username} avatar={result.avatar} />
                   <div className="row-label">
                     <div className="row-name row">
                       <OnlineDot online={result.online} />
@@ -569,7 +574,7 @@ export default function DashboardPage() {
                 {incoming.map((request) => (
                   <div className="list-row" key={request.id}>
                     <div className="row-main">
-                      <Avatar username={request.user.username} />
+                      <Avatar username={request.user.username} avatar={request.user.avatar} />
                       <div className="row-label">
                         <div className="row-name">@{request.user.username}</div>
                         <div className="small faint">{timeAgo(request.createdAt)}</div>
@@ -611,7 +616,7 @@ export default function DashboardPage() {
                 {outgoing.map((request) => (
                   <div className="list-row" key={request.id}>
                     <div className="row-main">
-                      <Avatar username={request.user.username} />
+                      <Avatar username={request.user.username} avatar={request.user.avatar} />
                       <div className="row-label">
                         <div className="row-name">@{request.user.username}</div>
                       </div>
@@ -628,9 +633,88 @@ export default function DashboardPage() {
             </>
           ) : null}
         </section>
+        </div>
 
+        {/* You: your record, and the rules if you are new. */}
+        <div className="dash-col dash-col-info">
+        {/* ── Your record ──────────────────────────────────────────────── */}
+        <section className="card">
+          <div className="card-head">
+            <h2>Your record</h2>
+            <Link className="small" to={`/player/${user.id}`}>
+              Details
+            </Link>
+          </div>
+
+          {stats ? (
+            <div className="stat-grid">
+              <div className="stat">
+                <div className="stat-value is-best">{stats.bestScore ?? '—'}</div>
+                <div className="tiny">Best circle</div>
+              </div>
+              <div className="stat">
+                <div
+                  className="stat-value"
+                  style={{ color: stats.firstPlaceFinishes ? placementColor(1) : undefined }}
+                >
+                  {stats.firstPlaceFinishes}
+                </div>
+                <div className="tiny">1st connections</div>
+              </div>
+              <div className="stat">
+                <div className="stat-value">{stats.gamesPlayed}</div>
+                <div className="tiny">Played</div>
+              </div>
+            </div>
+          ) : (
+            <div className="skeleton" />
+          )}
+
+          {stats && stats.averagePlacement !== null ? (
+            <p className="small faint" style={{ marginTop: 10, marginBottom: 0 }}>
+              You usually connect {ordinal(Math.round(stats.averagePlacement))}.
+            </p>
+          ) : null}
+        </section>
+
+        {/* ── How it works ─────────────────────────────────────────────── */}
+        <section className="card">
+          <div className="card-head">
+            <h2>How it works</h2>
+          </div>
+          <div className="how">
+            <div className="how-step">
+              <span>
+                2–8 players. Everyone types one word in 15 seconds, blind. All words reveal at once.
+              </span>
+            </div>
+            <div className="how-step">
+              <span>
+                Say the same word as anyone else and you <strong>connect</strong> — you leave the
+                circle together as Connection #1, then #2, and so on.
+              </span>
+            </div>
+            <div className="how-step">
+              <span>
+                A word played once can never be played again, so you have to find a new middle
+                every round.
+              </span>
+            </div>
+            <div className="how-step">
+              <span>
+                Play until everyone is connected or one player is left alone.{' '}
+                <strong>Fewer rounds is better</strong> — and nobody left over is a perfect circle.
+              </span>
+            </div>
+          </div>
+        </section>
+      </div>
+      </div>
+
+      {/* Full width: the leaderboard is a wide list and reads badly in a column. */}
+      <div className="dash-wide">
         {/* ── Leaderboard ──────────────────────────────────────────────── */}
-        <section className="card span-2">
+        <section className="card">
           <div className="card-head">
             <h2>Fastest circles</h2>
             <div className="segmented">
@@ -681,78 +765,6 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
-        </section>
-
-        {/* ── Your record ──────────────────────────────────────────────── */}
-        <section className="card">
-          <div className="card-head">
-            <h2>Your record</h2>
-            <Link className="small" to={`/player/${user.id}`}>
-              Details
-            </Link>
-          </div>
-
-          {stats ? (
-            <div className="stat-grid">
-              <div className="stat">
-                <div className="stat-value is-best">{stats.bestScore ?? '—'}</div>
-                <div className="tiny">Best circle</div>
-              </div>
-              <div className="stat">
-                <div
-                  className="stat-value"
-                  style={{ color: stats.firstPlaceFinishes ? placementColor(1) : undefined }}
-                >
-                  {stats.firstPlaceFinishes}
-                </div>
-                <div className="tiny">1st connections</div>
-              </div>
-              <div className="stat">
-                <div className="stat-value">{stats.gamesPlayed}</div>
-                <div className="tiny">Played</div>
-              </div>
-            </div>
-          ) : (
-            <div className="skeleton" />
-          )}
-
-          {stats && stats.averagePlacement !== null ? (
-            <p className="small faint" style={{ marginTop: 10, marginBottom: 0 }}>
-              You usually connect {ordinal(Math.round(stats.averagePlacement))}.
-            </p>
-          ) : null}
-        </section>
-
-        {/* ── How it works ─────────────────────────────────────────────── */}
-        <section className="card span-2">
-          <div className="card-head">
-            <h2>How it works</h2>
-          </div>
-          <div className="how">
-            <div className="how-step">
-              <span>
-                2–8 players. Everyone types one word in 15 seconds, blind. All words reveal at once.
-              </span>
-            </div>
-            <div className="how-step">
-              <span>
-                Say the same word as anyone else and you <strong>connect</strong> — you leave the
-                circle together as Connection #1, then #2, and so on.
-              </span>
-            </div>
-            <div className="how-step">
-              <span>
-                A word played once can never be played again, so you have to find a new middle
-                every round.
-              </span>
-            </div>
-            <div className="how-step">
-              <span>
-                Play until everyone is connected or one player is left alone.{' '}
-                <strong>Fewer rounds is better</strong> — and nobody left over is a perfect circle.
-              </span>
-            </div>
-          </div>
         </section>
       </div>
     </div>

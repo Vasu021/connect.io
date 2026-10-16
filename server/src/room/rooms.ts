@@ -29,7 +29,11 @@ const roomSelect = {
   status: true,
   createdAt: true,
   members: {
-    select: { userId: true, joinedAt: true, user: { select: { username: true } } },
+    select: {
+      userId: true,
+      joinedAt: true,
+      user: { select: { username: true, avatar: true } },
+    },
     orderBy: { joinedAt: 'asc' },
   },
 } as const;
@@ -44,7 +48,7 @@ type RoomRow = {
   roundDurationMs: number;
   status: 'LOBBY' | 'IN_GAME' | 'CLOSED';
   createdAt: Date;
-  members: { userId: string; joinedAt: Date; user: { username: string } }[];
+  members: { userId: string; joinedAt: Date; user: { username: string; avatar: string | null } }[];
 };
 
 export function roomViewFor(room: RoomRow, viewerId: string): RoomView {
@@ -63,6 +67,7 @@ export function roomViewFor(room: RoomRow, viewerId: string): RoomView {
     members: room.members.map((member) => ({
       id: member.userId,
       username: member.user.username,
+      avatar: member.user.avatar,
       online: online.has(member.userId),
       isHost: member.userId === room.hostId,
       isYou: member.userId === viewerId,
@@ -316,7 +321,11 @@ export async function startRoom(roomId: string, hostId: string): Promise<string>
 
   const gameId = await createGameForRoom(
     { id: room.id, code: room.code, roundDurationMs: room.roundDurationMs },
-    room.members.map((member) => ({ userId: member.userId, username: member.user.username })),
+    room.members.map((member) => ({
+      userId: member.userId,
+      username: member.user.username,
+      avatar: member.user.avatar,
+    })),
   );
 
   await prisma.$transaction([

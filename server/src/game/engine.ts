@@ -18,6 +18,7 @@ import { normalizeWord, validateWord } from './words.js';
 type PlayerState = {
   userId: string;
   username: string;
+  avatar: string | null;
   status: GamePlayerStatus;
   placement: number | null;
   connectedAtRound: number | null;
@@ -124,6 +125,7 @@ export function stateFor(game: LiveGame, viewerId: string): GameStateView {
     return {
       id,
       username: player?.username ?? 'player',
+      avatar: player?.avatar ?? null,
       online: online.has(id),
       isYou: id === viewerId,
       status: player?.status ?? 'LEFT',
@@ -197,7 +199,7 @@ export function liveGameForRoom(roomId: string): LiveGame | undefined {
  */
 export async function createGameForRoom(
   room: { id: string; code: string; roundDurationMs: number },
-  members: { userId: string; username: string }[],
+  members: { userId: string; username: string; avatar: string | null }[],
 ): Promise<string> {
   const created = await prisma.game.create({
     data: {
@@ -222,6 +224,7 @@ export async function createGameForRoom(
         {
           userId: member.userId,
           username: member.username,
+          avatar: member.avatar,
           status: 'ACTIVE' as GamePlayerStatus,
           placement: null,
           connectedAtRound: null,
@@ -857,7 +860,7 @@ export async function restoreLiveGames(): Promise<number> {
     include: {
       room: { select: { id: true, code: true, roundDurationMs: true } },
       players: {
-        include: { user: { select: { id: true, username: true } } },
+        include: { user: { select: { id: true, username: true, avatar: true } } },
         orderBy: { joinedAt: 'asc' },
       },
       connections: { orderBy: { placement: 'asc' }, include: { players: true } },
@@ -907,6 +910,7 @@ export async function restoreLiveGames(): Promise<number> {
           {
             userId: player.userId,
             username: player.user.username,
+            avatar: player.user.avatar,
             status: player.status,
             placement: player.placement,
             connectedAtRound: player.connectedAtRound,

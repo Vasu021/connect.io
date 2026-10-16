@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AVATAR_IDS } from './avatars.js';
 import { MAX_WORD_LENGTH } from '../game/words.js';
 
 export const usernameSchema = z
@@ -29,6 +30,11 @@ export const registerSchema = z.object({
 export const loginSchema = z.object({
   identifier: z.string().trim().min(1, 'Enter your username or email').max(200),
   password: z.string().min(1, 'Enter your password').max(200),
+});
+
+/** Null clears the avatar and falls back to initials. */
+export const avatarSchema = z.object({
+  avatar: z.union([z.enum(AVATAR_IDS), z.null()]),
 });
 
 export const searchSchema = z.object({

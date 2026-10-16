@@ -269,6 +269,62 @@ input {
   align-items: start;
 }
 
+/**
+ * The dashboard, as deliberate columns rather than auto-fit.
+ *
+ * Its cards have wildly different heights — "new circle" is tall, "in progress"
+ * is two lines — and in a plain grid every row grows to its tallest card, which
+ * left large holes under the short ones. Grouping by purpose into columns that
+ * each flow top to bottom removes the holes and happens to read better:
+ * actions, then people, then you.
+ */
+.dash {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.dash-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.dash-wide {
+  margin-top: 16px;
+}
+
+/* Two columns: the third pair sits below, side by side, rather than leaving a
+   column-shaped gap. */
+@media (max-width: 1080px) {
+  .dash {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dash-col-info {
+    grid-column: span 2;
+    flex-direction: row;
+  }
+
+  .dash-col-info > * {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .dash {
+    grid-template-columns: 1fr;
+  }
+
+  .dash-col-info {
+    grid-column: span 1;
+    flex-direction: column;
+  }
+}
+
 .span-2 {
   grid-column: span 2;
 }
@@ -2150,6 +2206,112 @@ input {
 
   .word-image-link:hover .word-image,
   .word-image:hover {
+    transform: none;
+  }
+}
+
+/* ===========================================================================
+   Animal avatars
+
+   A fixed set of drawn faces rather than uploads: nothing to moderate, nothing
+   to store, and they stay crisp from a 24px chip to a 96px profile picture.
+   =========================================================================== */
+
+.avatar-animal {
+  padding: 0;
+  border: none;
+  background: none;
+  overflow: hidden;
+}
+
+.animal-face {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 50%;
+}
+
+/* The eyes blink on their own, which is most of what makes these feel alive. */
+.av-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: av-blink 6.5s ease-in-out infinite;
+}
+
+@keyframes av-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.1);
+  }
+}
+
+/* The picker on the profile page */
+
+.avatar-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 10px;
+}
+
+.avatar-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: rgba(7, 9, 15, 0.4);
+  cursor: pointer;
+  transition:
+    transform 0.16s var(--ease-out),
+    border-color 0.16s,
+    background 0.16s;
+}
+
+.avatar-option:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.avatar-option[aria-pressed='true'] {
+  border-color: var(--you);
+  background: var(--you-soft);
+  box-shadow: 0 0 0 1px var(--you) inset;
+}
+
+.avatar-option .animal-face {
+  width: 52px;
+  height: 52px;
+}
+
+.avatar-option-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.avatar-option[aria-pressed='true'] .avatar-option-label {
+  color: var(--you);
+}
+
+.avatar-xl {
+  width: 96px;
+  height: 96px;
+  font-size: 34px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .av-eye {
+    animation: none;
+  }
+
+  .avatar-option:hover {
     transform: none;
   }
 }

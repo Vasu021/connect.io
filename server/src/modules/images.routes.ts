@@ -32,8 +32,9 @@ imagesRouter.get(
     const absolute = path.resolve(root, row.filePath);
     if (!absolute.startsWith(path.resolve(root) + path.sep)) throw notFound('No such image');
 
+    let size: number;
     try {
-      await fs.access(absolute);
+      size = (await fs.stat(absolute)).size;
     } catch {
       // The row says READY but the file is gone — let it be fetched again
       // rather than serving a 404 forever.
@@ -47,8 +48,17 @@ imagesRouter.get(
     res.setHeader('Content-Type', row.contentType ?? 'image/jpeg');
     res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
     res.setHeader('ETag', `"${row.id}"`);
-    if (row.bytes) res.setHeader('Content-Length', String(row.bytes));
+    // Measured from the file, never from the stored byte count: the two can
+    // drift (a word re-fetched to the same path picks a different photo), and
+    // a Content-Length that disagrees with the body fails the whole response.
+    res.setHeader('Content-Length', String(size));
 
-    createReadStream(absolute).pipe(res);
+    const stream = createReadStream(absolute);
+    stream.on('error', () => {
+      // Nothing useful to say once bytes are already on the wire.
+      if (!res.headersSent) res.status(404).end();
+      else res.destroy();
+    });
+    stream.pipe(res);
   }),
 );

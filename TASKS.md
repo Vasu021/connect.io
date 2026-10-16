@@ -44,6 +44,12 @@ Status of the build, and what is worth doing next.
 - [x] Pictures sized to the room — 2× at 2–4 players, 1.5× at 5, base at 6–8
 - [x] Degrades to nothing at all without an API key, or when Pixabay is down
 
+### Profile pictures
+- [x] Twelve hand-drawn animal avatars, chosen from a fixed set — no uploads,
+      so nothing to moderate or store
+- [x] Picked on your own profile, shown everywhere a player appears
+- [x] Eyes blink; an unknown id falls back to initials
+
 ### Interface
 - [x] The circle: players on a ring, chords snapping to each Connection's hub
 - [x] Per-Connection colours, placement badges, live lock-in pips
@@ -55,6 +61,8 @@ Status of the build, and what is worth doing next.
       eight players checked in the browser
 - [x] Long result and friend lists scroll inside their card
 - [x] Host-adjustable round length (10–60s) set in the lobby
+- [x] Dashboard laid out as purposeful columns, so short cards no longer leave
+      holes beside tall ones
 - [x] Standings rail, podium result with the Wildcard row
 - [x] Confetti and a Perfect Circle banner
 - [x] Spectator view once you have connected
@@ -72,7 +80,7 @@ Status of the build, and what is worth doing next.
 - [x] History with the full round-by-round trail
 
 ### Foundation
-- [x] 108 server tests, including eight-player secrecy tests for words and images
+- [x] 114 server tests, including eight-player secrecy tests for words and images
 - [x] Fixed a double-resolve race when players submitted in the same tick
 - [x] Dashboard refetches coalesced — eight players no longer trip the limiter
 - [x] `npm audit` clean, transitive patches pinned via overrides
@@ -112,6 +120,12 @@ Status of the build, and what is worth doing next.
 - [ ] **Observability.** No structured logging or metrics. Rounds-to-close by
       player count, abandonment rate and placement distribution are the
       interesting signals.
+
+### Known limits
+- [ ] **The dashboard refetches six endpoints per change event.** Debounced, but
+      eight players behind one address still generate a lot of calls during a
+      busy game. Pushing deltas over the socket instead of refetching would fix
+      it properly.
 
 ### Images, later
 - [ ] **Let players turn pictures off.** Some will find them distracting, and a

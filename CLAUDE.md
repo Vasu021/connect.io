@@ -24,7 +24,7 @@ safe to generalise. Full rules in `GAME.md`.
 ## Stack
 
 npm workspaces: `client` (React 19, Vite 7, React Router 7) and `server` (Node,
-Express 5, Socket.IO 4, Prisma 6 → Postgres 16, Zod 4). 108 vitest tests, server
+Express 5, Socket.IO 4, Prisma 6 → Postgres 16, Zod 4). 114 vitest tests, server
 side only.
 
 Architecture is in `DEVELOPMENT_GUIDE.md`. Open work is in `TASKS.md`.
@@ -152,6 +152,19 @@ clean; keep them that way.
 - **Test words must be letters only.** `validateWord()` rejects digits, so
   `alpha1` silently submits nothing — which once made a test pass for entirely
   the wrong reason.
+- **Avatars are a fixed set, never uploads.** `server/src/lib/avatars.ts` is the
+  source of truth and the client has a matching drawing per id in
+  `AnimalAvatar.tsx`. No uploads means nothing to moderate, nothing to store,
+  and nothing unpleasant can end up beside a name. An unknown id falls back to
+  initials rather than rendering a hole.
+- **Serve image bytes by measuring the file, not the stored byte count.** The
+  two can drift — a word re-fetched to the same path picks a different photo —
+  and a `Content-Length` that disagrees with the body fails the whole response
+  with a 500.
+- **The dev proxy must tolerate aborted requests.** A browser closing a tab
+  mid-stream makes http-proxy emit an unhandled `error`, which takes the whole
+  Vite dev server down. `vite.config.ts` swallows `ECONNRESET` / `EPIPE` /
+  `ERR_STREAM_WRITE_AFTER_END`; do not remove that handler.
 - **`/api/images` is mounted ahead of `apiLimiter` on purpose.** Eight players
   loading image tags is a burst of cheap cached file reads; counting them
   against the API budget would throttle actual gameplay. Do not move it below
@@ -159,6 +172,10 @@ clean; keep them that way.
 - **Never hotlink Pixabay.** Their terms forbid it and their URLs expire after
   24 hours, so bytes are downloaded to `IMAGE_STORE_DIR` and served by us.
   Attribution (photographer + link back) must stay visible wherever images show.
+- **The dashboard is deliberate columns, not auto-fit.** Its cards differ wildly
+  in height and a plain grid sized every row to its tallest card, leaving holes.
+  `.dash-col` groups them by purpose — actions, people, you — with the
+  leaderboard full width beneath.
 - **Seat image size scales with player count** (2× at 2–4 players, 1.5× at 5,
   1× at 6–8) via CSS variables set in `Circle.tsx`. Bigger pictures make seats
   taller, so the ring radius tightens to match — otherwise the top seat

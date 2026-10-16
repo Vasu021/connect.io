@@ -1,22 +1,51 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Avatar, OnlineDot } from '../components/Avatar';
+import { ANIMALS, AVATAR_IDS, type AvatarId } from '../components/AnimalAvatar';
 import { Brand } from '../components/Brand';
 import { ApiError, api } from '../lib/api';
+import { useToast } from '../lib/toasts';
 import { useAuth } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import type { PlayerStats } from '../lib/types';
 
 type Profile = {
-  user: { id: string; username: string; createdAt: string; online: boolean };
+  user: {
+    id: string;
+    username: string;
+    avatar: string | null;
+    createdAt: string;
+    online: boolean;
+  };
   stats: PlayerStats;
 };
 
 export default function ProfilePage() {
   const { userId } = useParams<{ userId: string }>();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
+  const toast = useToast();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  /** Only you can change your own face. */
+  async function chooseAvatar(avatar: AvatarId | null) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await api.post('/api/users/me/avatar', { avatar });
+      setProfile((current) =>
+        current ? { ...current, user: { ...current.user, avatar } } : current,
+      );
+      // Refresh the session so the header and every other card update too.
+      await refresh();
+      toast.show(avatar ? `You are a ${ANIMALS[avatar].label.toLowerCase()} now` : 'Back to initials', 'good');
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : 'Could not change your picture', 'bad');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!userId) return;
@@ -59,7 +88,12 @@ export default function ProfilePage() {
         <div className="dashboard-grid">
           <section className="card span-2">
             <div className="row" style={{ gap: 16 }}>
-              <Avatar username={profile.user.username} side={isYou ? 'you' : 'them'} large />
+              <Avatar
+                username={profile.user.username}
+                avatar={profile.user.avatar}
+                side={isYou ? 'you' : 'them'}
+                large
+              />
               <div>
                 <h1 style={{ fontSize: 26 }}>@{profile.user.username}</h1>
                 <div className="row small muted">
@@ -70,6 +104,40 @@ export default function ProfilePage() {
               </div>
             </div>
           </section>
+
+          {isYou ? (
+            <section className="card span-2">
+              <div className="card-head">
+                <h2>Your picture</h2>
+                {profile.user.avatar ? (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => void chooseAvatar(null)}
+                    disabled={saving}
+                  >
+                    Use initials
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="avatar-picker">
+                {AVATAR_IDS.map((id) => (
+                  <button
+                    type="button"
+                    key={id}
+                    className="avatar-option"
+                    aria-pressed={profile.user.avatar === id}
+                    aria-label={ANIMALS[id].label}
+                    disabled={saving}
+                    onClick={() => void chooseAvatar(id)}
+                  >
+                    <Avatar username={profile.user.username} avatar={id} large />
+                    <span className="avatar-option-label">{ANIMALS[id].label}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="card span-2">
             <div className="card-head">
@@ -128,6 +196,7 @@ export default function ProfilePage() {
                   <div className="list-row" key={partner.id}>
                     <div className="row-main">
                       <span className={`rank rank-${index + 1}`}>{index + 1}</span>
+                      <Avatar username={partner.username} avatar={partner.avatar} />
                       <div className="row-label">
                         <div className="row-name">
                           <Link to={`/player/${partner.id}`}>@{partner.username}</Link>

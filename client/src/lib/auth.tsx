@@ -16,6 +16,8 @@ type AuthState = {
   login: (identifier: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Re-reads the session, so a profile change shows up everywhere at once. */
+  refresh: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -63,14 +65,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
   }, []);
 
+  const refresh = useCallback(async () => {
+    try {
+      const data = await api.get<{ user: User }>('/api/auth/me');
+      setUser(data.user);
+    } catch {
+      // A failed refresh is not worth disturbing the page for.
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     await api.post('/api/auth/logout').catch(() => undefined);
     setUser(null);
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, register, logout }),
-    [user, loading, login, register, logout],
+    () => ({ user, loading, login, register, logout, refresh }),
+    [user, loading, login, register, logout, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
